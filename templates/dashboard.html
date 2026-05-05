@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🛡️ Agentic Security Scanner</title>
+    <style>
+        :root {
+            --bg: #0a0a0f;
+            --panel: #0f0f1e;
+            --card: #141428;
+            --border: #1e1e3a;
+            --text: #c8c8d0;
+            --dim: #6a6a7a;
+            --accent: #00d4aa;
+            --red: #ff6b6b;
+            --yellow: #ffd93d;
+            --orange: #ff9f43;
+            --terminal-bg: #050510;
+            --glow: 0 0 20px rgba(0, 212, 170, 0.15);
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+        }
+
+        /* Header */
+        .header {
+            background: var(--panel);
+            border-bottom: 1px solid var(--border);
+            padding: 1rem 2rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+        .header .logo {
+            font-size: 1.4rem;
+            font-weight: 700;
+            color: var(--accent);
+            letter-spacing: 1px;
+            white-space: nowrap;
+        }
+        .header .logo span { color: var(--dim); font-weight: 400; }
+        .scan-bar {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+            flex: 1;
+            max-width: 600px;
+        }
+        .scan-bar input {
+            flex: 1;
+            padding: 0.65rem 1rem;
+            background: var(--terminal-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text);
+            font-size: 0.95rem;
+            font-family: 'Courier New', monospace;
+            outline: none;
+            transition: border 0.2s;
+        }
+        .scan-bar input:focus { border-color: var(--accent); box-shadow: var(--glow); }
+        .btn {
+            padding: 0.65rem 1.5rem;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-scan {
+            background: var(--accent);
+            color: #000;
+        }
+        .btn-scan:hover { background: #00ffc4; transform: translateY(-1px); }
+        .btn-scan:disabled {
+            background: #1a3a30;
+            color: #4a6a5a;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .btn-demo {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text);
+            font-size: 0.78rem;
+            padding: 0.45rem 0.9rem;
+        }
+        .btn-demo:hover { border-color: var(--accent); }
+
+        /* Layout */
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            padding: 1.5rem;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        @media (max-width: 900px) { .main-grid { grid-template-columns: 1fr; } }
+
+        /* KPI Bar */
+        .kpi-bar {
+            grid-column: 1 / -1;
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+        .kpi-card {
+            flex: 1;
+            min-width: 130px;
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1rem 1.2rem;
+            text-align: center;
+            transition: all 0.3s;
+        }
+        .kpi-card .kpi-value {
+            font-size: 2.2rem;
+            font-weight: 800;
+        }
+        .kpi-card .kpi-label {
+            font-size: 0.78rem;
+            color: var(--dim);
+            margin-top: 0.25rem;
+        }
+        .kpi-score .kpi-value {
+            background: linear-gradient(135deg, var(--accent), #00ffc4);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .kpi-score.danger .kpi-value {
+            background: linear-gradient(135deg, var(--red), #ff4444);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .kpi-score.warn .kpi-value {
+            background: linear-gradient(135deg, var(--yellow), #ffaa00);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .kpi-critical .kpi-value { color: var(--red); }
+        .kpi-total .kpi-value { color: var(--orange); }
+
+        /* Panel */
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+        }
+
+        /* Vulnerabilities Table — full width */
+        .vuln-section {
+            grid-column: 1 / -1;
+        }
+        .panel-header {
+            padding: 0.9rem 1.2rem;
+            border-bottom: 1px solid var(--border);
+            font-weight: 700;
+            font-size: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .vuln-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+        }
+        .vuln-table th {
+            text-align: right;
+            padding: 0.6rem 1rem;
+            background: var(--card);
+            color: var(--dim);
+            font-weight: 600;
+            font-size: 0.78rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 1px solid var(--border);
+        }
+        .vuln-table td {
+            padding: 0.7rem 1rem;
+            border-bottom: 1px solid rgba(255,255,255,0.03);
+            vertical-align: top;
+        }
+        .vuln-table tbody tr { transition: background 0.15s; }
+        .vuln-table tbody tr:hover { background: var(--card); }
+        .badge {
+            display: inline-block;
+            padding: 0.2rem 0.6rem;
+            border-radius: 4px;
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+        }
+        .badge-HIGH { background: #3a1010; color: var(--red); border: 1px solid #5a2020; }
+        .badge-MEDIUM { background: #3a2a00; color: var(--yellow); border: 1px solid #5a4a00; }
+        .badge-LOW { background: #0a2a1a; color: var(--accent); border: 1px solid #1a3a2a; }
+
+        /* Terminal */
+        .terminal-section {
+            grid-column: 1 / -1;
+        }
+        .terminal-header {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: var(--terminal-bg);
+            border: 1px solid var(--border);
+            border-bottom: none;
+            border-radius: 10px 10px 0 0;
+            padding: 0.5rem 1rem;
+        }
+        .terminal-dot {
+            width: 10px; height: 10px;
+            border-radius: 50%;
+        }
+        .dot-red { background: #ff5f57; }
+        .dot-yellow { background: #ffbd2e; }
+        .dot-green { background: #28ca41; }
+        .terminal-title {
+            margin-right: 0.5rem;
+            font-size: 0.8rem;
+            color: var(--dim);
+        }
+        .terminal-body {
+            background: var(--terminal-bg);
+            border: 1px solid var(--border);
+            border-top: none;
+            border-radius: 0 0 10px 10px;
+            padding: 1rem;
+            min-height: 180px;
+            max-height: 320px;
+            overflow-y: auto;
+            font-family: 'Courier New', 'Consolas', monospace;
+            font-size: 0.82rem;
+            line-height: 1.65;
+            color: #b0b0c8;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .terminal-body .log-line {
+            padding: 0.1rem 0;
+            animation: fadeIn 0.15s ease;
+        }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-2px); } to { opacity: 1; transform: translateY(0); } }
+
+        .log-dim { color: var(--dim); }
+        .log-green { color: var(--accent); }
+        .log-red { color: var(--red); }
+        .log-yellow { color: var(--yellow); }
+        .log-orange { color: var(--orange); }
+        .log-white { color: #fff; }
+
+        /* Loading */
+        .loading-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.7);
+            z-index: 999;
+            align-items: center;
+            justify-content: center;
+        }
+        .loading-overlay.active { display: flex; }
+        .spinner {
+            width: 50px; height: 50px;
+            border: 3px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Empty state */
+        .empty-state {
+            text-align: center;
+            padding: 2rem;
+            color: var(--dim);
+            font-size: 0.9rem;
+        }
+        .empty-state .icon { font-size: 2.5rem; margin-bottom: 0.5rem; }
+
+        /* Responsive table */
+        .table-wrapper { overflow-x: auto; }
+        @media (max-width: 600px) {
+            .vuln-table { font-size: 0.75rem; }
+            .vuln-table th, .vuln-table td { padding: 0.5rem; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <div class="logo">🛡️ Security<span>Scanner</span></div>
+        <div class="scan-bar">
+            <input type="text" id="urlInput" placeholder="https://example.com" value="https://example.com">
+            <button class="btn btn-scan" id="btnScan" onclick="runScan()">▶ Scan</button>
+            <button class="btn btn-demo" onclick="document.getElementById('urlInput').value='https://example.com'; runScan();">Demo</button>
+        </div>
+    </div>
+
+    <div class="main-grid">
+        <!-- KPI Bar -->
+        <div class="kpi-bar" id="kpiBar">
+            <div class="kpi-card kpi-score" id="kpiScoreCard">
+                <div class="kpi-value" id="kpiScore">--</div>
+                <div class="kpi-label">Security Score</div>
+            </div>
+            <div class="kpi-card kpi-total">
+                <div class="kpi-value" id="kpiFindings">--</div>
+                <div class="kpi-label">Total Findings</div>
+            </div>
+            <div class="kpi-card kpi-critical">
+                <div class="kpi-value" id="kpiHigh">--</div>
+                <div class="kpi-label">Critical / HIGH</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-value" style="color:#ffd93d;" id="kpiMedium">--</div>
+                <div class="kpi-label">Medium</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-value" style="color:#00d4aa;" id="kpiLow">--</div>
+                <div class="kpi-label">Low</div>
+            </div>
+        </div>
+
+        <!-- Vulnerabilities Table -->
+        <div class="panel vuln-section">
+            <div class="panel-header">
+                🐞 Vulnerabilities Found
+            </div>
+            <div class="table-wrapper">
+                <table class="vuln-table">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Header</th>
+                            <th>Severity</th>
+                            <th>Description</th>
+                            <th>Remediation</th>
+                        </tr>
+                    </thead>
+                    <tbody id="vulnTableBody">
+                        <tr>
+                            <td colspan="5">
+                                <div class="empty-state">
+                                    <div class="icon">🔍</div>
+                                    Enter a URL and press <strong>Scan</strong> to begin
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Terminal -->
+        <div class="terminal-section">
+            <div class="terminal-header">
+                <span class="terminal-dot dot-red"></span>
+                <span class="terminal-dot dot-yellow"></span>
+                <span class="terminal-dot dot-green"></span>
+                <span class="terminal-title">Scan Terminal — Live Output</span>
+            </div>
+            <div class="terminal-body" id="terminal">
+                <span class="log-dim">Ready. Enter a URL and click </span><span class="log-green"><b>Scan</b></span><span class="log-dim"> to start security analysis.</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="spinner"></div>
+    </div>
+
+    <script>
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function terminalLine(msg, cls) {
+            const term = document.getElementById('terminal');
+            const span = document.createElement('span');
+            span.className = 'log-line ' + (cls || '');
+            span.textContent = msg;
+            term.appendChild(span);
+            term.appendChild(document.createTextNode('\n'));
+            term.scrollTop = term.scrollHeight;
+        }
+
+        function setKPI(id, val) {
+            document.getElementById(id).textContent = val;
+        }
+
+        async function runScan() {
+            const url = document.getElementById('urlInput').value.trim();
+            if (!url) {
+                terminalLine('❌ Please enter a target URL.', 'log-red');
+                return;
+            }
+
+            // Reset UI
+            document.getElementById('terminal').innerHTML = '';
+            document.getElementById('vulnTableBody').innerHTML = '';
+            document.getElementById('btnScan').disabled = true;
+            document.getElementById('loadingOverlay').classList.add('active');
+
+            setKPI('kpiScore', '...');
+            setKPI('kpiFindings', '...');
+            setKPI('kpiHigh', '...');
+            setKPI('kpiMedium', '...');
+            setKPI('kpiLow', '...');
+
+            const scoreCard = document.getElementById('kpiScoreCard');
+            scoreCard.classList.remove('danger', 'warn');
+
+            const startTime = performance.now();
+
+            terminalLine('╔══════════════════════════════════════╗', 'log-dim');
+            terminalLine('║   🛡️  AGENTIC SECURITY SCANNER       ║', 'log-green');
+            terminalLine('╚══════════════════════════════════════╝', 'log-dim');
+            terminalLine('');
+            terminalLine('Target: ' + url, 'log-white');
+            terminalLine('');
+
+            try {
+                terminalLine('🔍 Sending POST to /api/scan/security...', 'log-dim');
+
+                const resp = await fetch('/api/scan/security', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ target_url: url }),
+                });
+
+                if (!resp.ok) {
+                    const errData = await resp.json().catch(() => ({}));
+                    const detail = errData.detail || resp.statusText;
+                    throw new Error(detail);
+                }
+
+                const data = await resp.json();
+                const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
+
+                // ── Terminal Output ──
+                terminalLine('');
+                terminalLine('✅ Scan completed in ' + elapsed + 's', 'log-green');
+                terminalLine('──────────────────────────────────────', 'log-dim');
+                terminalLine('');
+                terminalLine('📋 SCAN RESULTS', 'log-white');
+                terminalLine('');
+                terminalLine('  Target URL:    ' + data.target_url, 'log-dim');
+                terminalLine('  Final URL:     ' + data.final_url, 'log-dim');
+                terminalLine('  HTTPS:         ' + (data.is_https ? '✅ Yes' : '❌ No'), data.is_https ? 'log-green' : 'log-red');
+                terminalLine('  Status Code:   ' + data.status_code, data.status_code < 400 ? 'log-green' : 'log-yellow');
+                terminalLine('');
+                terminalLine('  Open Ports:    ' + (data.open_ports.length > 0 ? data.open_ports.join(', ') : 'None detected'), data.open_ports.length > 0 ? 'log-yellow' : 'log-dim');
+                terminalLine('');
+                terminalLine('  Missing Headers:', 'log-white');
+                if (data.missing_headers.length > 0) {
+                    for (let h of data.missing_headers) {
+                        terminalLine('    ❌ ' + h, 'log-red');
+                    }
+                } else {
+                    terminalLine('    ✅ All core headers present', 'log-green');
+                }
+
+                // Show interesting response headers
+                if (data.response_headers && Object.keys(data.response_headers).length > 0) {
+                    terminalLine('');
+                    terminalLine('  Response Headers:', 'log-dim');
+                    for (let [k, v] of Object.entries(data.response_headers)) {
+                        const shortVal = String(v).substring(0, 70);
+                        terminalLine('    ' + k + ': ' + shortVal, 'log-dim');
+                    }
+                }
+
+                terminalLine('');
+                terminalLine('  Security Score: ' + data.security_score + '/100', data.security_score >= 70 ? 'log-green' : data.security_score >= 40 ? 'log-yellow' : 'log-red');
+
+                terminalLine('');
+                terminalLine('══════════════════════════════════════', 'log-dim');
+                terminalLine('  Scan Status: ' + data.scan_status.toUpperCase(), 'log-green');
+                terminalLine('══════════════════════════════════════', 'log-dim');
+
+                // ── Update KPI Cards ──
+                const vulns = data.vulnerabilities || [];
+                const highCount = vulns.filter(v => v.severity === 'HIGH').length;
+                const mediumCount = vulns.filter(v => v.severity === 'MEDIUM').length;
+                const lowCount = vulns.filter(v => v.severity === 'LOW').length;
+
+                setKPI('kpiScore', data.security_score);
+                setKPI('kpiFindings', vulns.length);
+                setKPI('kpiHigh', highCount);
+                setKPI('kpiMedium', mediumCount);
+                setKPI('kpiLow', lowCount);
+
+                // Color the score card
+                if (data.security_score < 40) {
+                    scoreCard.classList.add('danger');
+                } else if (data.security_score < 70) {
+                    scoreCard.classList.add('warn');
+                }
+
+                // ── Render Vulnerabilities Table ──
+                const tbody = document.getElementById('vulnTableBody');
+                if (vulns.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:2rem;color:#00d4aa;">✅ No vulnerabilities found — all security headers present!</td></tr>';
+                } else {
+                    let rows = '';
+                    vulns.forEach((v, i) => {
+                        rows += '<tr>';
+                        rows += '<td>' + (i + 1) + '</td>';
+                        rows += '<td><code style="color:#fff;">' + escapeHtml(v.header) + '</code></td>';
+                        rows += '<td><span class="badge badge-' + v.severity + '">' + v.severity + '</span></td>';
+                        rows += '<td>' + escapeHtml(v.description) + '</td>';
+                        rows += '<td style="color:#00d4aa;">' + escapeHtml(v.remediation) + '</td>';
+                        rows += '</tr>';
+                    });
+                    tbody.innerHTML = rows;
+                }
+
+            } catch (err) {
+                terminalLine('');
+                terminalLine('❌ SCAN FAILED', 'log-red');
+                terminalLine('Error: ' + err.message, 'log-red');
+                terminalLine('');
+                terminalLine('══════════════════════════════════════', 'log-dim');
+                terminalLine('  Scan Status: FAILED', 'log-red');
+                terminalLine('══════════════════════════════════════', 'log-dim');
+
+                setKPI('kpiScore', 'ERR');
+                setKPI('kpiFindings', 'ERR');
+                setKPI('kpiHigh', 'ERR');
+                setKPI('kpiMedium', 'ERR');
+                setKPI('kpiLow', 'ERR');
+
+                document.getElementById('vulnTableBody').innerHTML =
+                    '<tr><td colspan="5" style="text-align:center;padding:2rem;color:#ff6b6b;">❌ Scan error: ' + escapeHtml(err.message) + '</td></tr>';
+
+            } finally {
+                document.getElementById('btnScan').disabled = false;
+                document.getElementById('loadingOverlay').classList.remove('active');
+            }
+        }
+
+        // Enter key triggers scan
+        document.getElementById('urlInput').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') runScan();
+        });
+    </script>
+</body>
+</html>

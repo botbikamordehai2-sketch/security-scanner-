@@ -30,6 +30,7 @@ from flask import Flask, request, jsonify
 from shared.db import get_db
 from shared.events import ScanRequest, ScanResult, ScanResponseV1
 from shared.pubsub_utils import publish_message, IS_CLOUD
+from shared.deepseek import get_deepseek
 
 app = Flask(__name__)
 PORT = int(os.environ.get("PORT", 8080))
@@ -123,9 +124,11 @@ async def run_research(days_back: int = 7) -> List[Dict]:
 def summarize_with_deepseek(findings: List[Dict]) -> Dict[str, Any]:
     """
     Send top findings to DeepSeek for summarization into actionable insights.
+    Uses shared DeepSeekClient with retry logic.
     Returns a structured summary dict.
     """
-    if not DEEPSEEK_API_KEY or not findings:
+    client = get_deepseek()
+    if not client.is_configured or not findings:
         return {
             "summary": "DeepSeek not available or no findings to summarize",
             "top_innovations": findings[:5] if findings else [],
@@ -165,36 +168,20 @@ Write a Hebrew summary with these 3 sections:
 Format: Hebrew RTL, technical but accessible, actionable. Keep total output under 500 words."""
 
     try:
-        resp = httpx.post(
-            "https://api.deepseek.com/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": "deepseek-chat",
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.3,
-                "max_tokens": 1200,
-            },
-            timeout=30.0,
+        result = client.chat(
+            prompt=prompt,
+            system="You are a Technology Innovation Analyst. Respond in Hebrew RTL.",
+            temperature=0.3,
+            max_tokens=1200,
         )
-        if resp.status_code == 200:
-            summary_text = resp.json()["choices"][0]["message"]["content"]
-            return {
-                "summary": summary_text,
-                "top_innovations": findings[:5],
-                "total_findings": len(findings),
-                "summarized_at": datetime.now(timezone.utc).isoformat(),
-            }
-        else:
-            print(f"[tech_pulse] DeepSeek error {resp.status_code}: {resp.text[:200]}")
-            return {
-                "summary": f"DeepSeek summarization failed (HTTP {resp.status_code})",
-                "top_innovations": findings[:5],
-            }
+        return {
+            "summary": result["response"],
+            "top_innovations": findings[:5],
+            "total_findings": len(findings),
+            "summarized_at": datetime.now(timezone.utc).isoformat(),
+        }
     except Exception as e:
-        print(f"[tech_pulse] DeepSeek exception: {e}")
+        print(f"[tech_pulse] DeepSeek error: {e}")
         return {
             "summary": f"DeepSeek unavailable: {str(e)}",
             "top_innovations": findings[:5],

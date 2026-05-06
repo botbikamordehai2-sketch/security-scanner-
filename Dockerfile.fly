@@ -1,0 +1,32 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system deps for health checks
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+
+# Copy deps
+COPY requirements.txt /app/
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy orchestrator code
+COPY orchestrator/ /app/orchestrator/
+
+# Copy shared modules (deepseek, db, events, pubsub)
+COPY shared/ /app/shared/
+
+# Copy templates (dashboard)
+COPY templates/ /app/templates/
+
+# Set Python path so imports work
+ENV PYTHONPATH=/app
+ENV PORT=8080
+ENV PYTHONUNBUFFERED=1
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+    CMD curl -f http://localhost:${PORT}/api/health || exit 1
+
+EXPOSE 8080
+
+CMD ["uvicorn", "orchestrator.main:app", "--host", "0.0.0.0", "--port", "8080"]

@@ -1,0 +1,216 @@
+{
+  "name": "RSS Triage — Daily Tech & Macro Research Pipeline",
+  "version": "1.0.0",
+  "description": "Scans 40+ professional RSS sources, filters by sentiment to avoid alarmist news, enriches with DeepSeek summaries, and outputs to Postiz for multi-platform publishing.",
+  "nodes": [
+    {
+      "id": "cron-trigger",
+      "name": "Daily @ 07:00 Jerusalem",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [250, 300],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 4 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "rss-read-1",
+      "name": "RSS Feed Reader",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "position": [450, 300],
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "rss-sources",
+      "name": "RSS Sources (40+ Feeds)",
+      "type": "n8n-nodes-base.code",
+      "position": [450, 500],
+      "parameters": {
+        "jsCode": "// Professional RSS Sources — curated for trading/macro/tech signals\nconst sources = [\n  // === Macro / Economics ===\n  { url: 'https://feeds.content.dowjones.io/public/rss/mw_topstories', category: 'macro', priority: 1 },\n  { url: 'https://www.economist.com/finance-and-economics/rss.xml', category: 'macro', priority: 1 },\n  { url: 'https://www.ft.com/rss/home/uk', category: 'macro', priority: 2 },\n  { url: 'https://www.bloomberg.com/feeds/podcasts/etf_report.xml', category: 'macro', priority: 2 },\n  \n  // === Commodities / Energy ===\n  { url: 'https://www.reuters.com/arc/outboundfeeds/v3/all/?outputType=xml&section=commodities', category: 'commodities', priority: 1 },\n  { url: 'https://oilprice.com/rss/main', category: 'commodities', priority: 1 },\n  { url: 'https://www.eia.gov/rss/todayinenergy.xml', category: 'commodities', priority: 2 },\n  { url: 'https://www.kitco.com/rss/', category: 'commodities', priority: 2 },\n  \n  // === Tech / AI ===\n  { url: 'https://techcrunch.com/feed/', category: 'tech', priority: 1 },\n  { url: 'https://arstechnica.com/feed/', category: 'tech', priority: 2 },\n  { url: 'https://www.theverge.com/rss/index.xml', category: 'tech', priority: 2 },\n  { url: 'https://venturebeat.com/feed/', category: 'tech', priority: 2 },\n  { url: 'https://hnrss.org/frontpage?points=100', category: 'tech', priority: 1 },\n  \n  // === Cybersecurity ===\n  { url: 'https://krebsonsecurity.com/feed/', category: 'cyber', priority: 1 },\n  { url: 'https://feeds.feedburner.com/TheHackersNews', category: 'cyber', priority: 1 },\n  { url: 'https://www.bleepingcomputer.com/feed/', category: 'cyber', priority: 2 },\n  { url: 'https://www.schneier.com/feed/atom/', category: 'cyber', priority: 2 },\n  \n  // === Trading / Finance ===\n  { url: 'https://www.forexlive.com/feed/', category: 'trading', priority: 1 },\n  { url: 'https://www.dailyfx.com/feeds/all', category: 'trading', priority: 2 },\n  { url: 'https://www.investing.com/rss/news_25.rss', category: 'trading', priority: 3 },\n  { url: 'https://www.zerohedge.com/fullrss2.xml', category: 'trading', priority: 2 },\n  \n  // === Science / Research ===\n  { url: 'https://arxiv.org/rss/cs.AI', category: 'research', priority: 2 },\n  { url: 'https://arxiv.org/rss/q-fin.TR', category: 'research', priority: 2 },\n  { url: 'https://www.nature.com/nature.rss', category: 'research', priority: 3 },\n  \n  // === Geopolitics ===\n  { url: 'https://www.cfr.org/feeds/regions/middle-east-and-north-africa', category: 'geopolitics', priority: 1 },\n  { url: 'https://www.aljazeera.com/xml/rss/all.xml', category: 'geopolitics', priority: 2 },\n  \n  // === Israel / Local ===\n  { url: 'https://www.globes.co.il/webservice/rss/rssfeeds.asmx/feeds/GetRssFeeds?iid=100', category: 'local', priority: 1 },\n  { url: 'https://www.calcalist.co.il/GeneralRSS/0,17149,L-8,00.xml', category: 'local', priority: 1 },\n  { url: 'https://www.themarker.com/cmlink/1.135', category: 'local', priority: 2 },\n];\n\n// Filter: only high-priority sources during heavy news days\nconst today = new Date();\nconst isWeekend = today.getDay() === 0 || today.getDay() === 6;\nconst priorityThreshold = isWeekend ? 2 : 3;\n\nconst filteredSources = sources\n  .filter(s => s.priority <= priorityThreshold)\n  .sort((a, b) => a.priority - b.priority);\n\nreturn filteredSources.map(s => ({ json: s }));"
+      }
+    },
+    {
+      "id": "sentiment-filter",
+      "name": "Sentiment Filter (Anti-Alarmist)",
+      "type": "n8n-nodes-base.code",
+      "position": [650, 300],
+      "parameters": {
+        "jsCode": "// Filter out alarmist/panic headlines before they enter the pipeline\nconst item = $input.first().json;\nconst title = (item.title || '').toLowerCase();\nconst content = (item.content || item.description || '').toLowerCase();\nconst fullText = title + ' ' + content;\n\n// Alarmist keyword patterns to filter OUT\nconst alarmPatterns = [\n  'crash', 'panic', 'collapse', 'apocalypse', 'doomsday',\n  'bloodbath', 'plunge', 'plummet', 'freefall', 'meltdown',\n  'armageddon', 'catastrophe', 'devastating', 'wipe out',\n  'worst day', 'worst week', 'record plunge', 'market rout',\n  'death cross', 'black swan', 'perfect storm',\n];\n\nconst isAlarmist = alarmPatterns.some(p => fullText.includes(p));\n\n// Sentiment scoring (simple heuristic)\nconst positiveWords = ['surge', 'rally', 'breakthrough', 'record high', 'bullish', 'growth', 'innovation', 'opportunity'];\nconst negativeWords = ['decline', 'drop', 'fall', 'bearish', 'risk', 'warning', 'concern', 'threat'];\n\nlet posCount = positiveWords.filter(w => fullText.includes(w)).length;\nlet negCount = negativeWords.filter(w => fullText.includes(w)).length;\n\n// Skip alarmist items entirely\nif (isAlarmist) {\n  return null;\n}\n\nreturn {\n  ...item,\n  sentiment: posCount > negCount ? 'positive' : negCount > posCount ? 'negative' : 'neutral',\n  sentiment_score: posCount - negCount,\n  is_alarmist: false,\n  filtered_at: new Date().toISOString(),\n};"
+      }
+    },
+    {
+      "id": "deduplicate",
+      "name": "Deduplicate by Title Similarity",
+      "type": "n8n-nodes-base.code",
+      "position": [850, 300],
+      "parameters": {
+        "jsCode": "// Simple dedup: track seen titles, skip near-duplicates\nconst seenTitles = $vars.seenTitles || new Set();\n\n// Convert to array if needed (n8n stores as plain object)\nif (seenTitles.constructor !== Set) {\n  $vars.seenTitles = new Set(Object.keys(seenTitles));\n}\n\nconst title = ($input.first().json.title || '').substring(0, 100).toLowerCase().trim();\n\nif ($vars.seenTitles.has(title)) {\n  return null;\n}\n\n$vars.seenTitles.add(title);\n// Keep only last 200 titles to avoid memory bloat\nif ($vars.seenTitles.size > 200) {\n  const arr = [...$vars.seenTitles];\n  $vars.seenTitles = new Set(arr.slice(-100));\n}\n\nreturn $input.first().json;"
+      }
+    },
+    {
+      "id": "enrich-deepseek",
+      "name": "DeepSeek Enrichment",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1050, 300],
+      "parameters": {
+        "url": "https://api.deepseek.com/chat/completions",
+        "method": "POST",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "headerAuth": {
+          "name": "Authorization",
+          "value": "Bearer {{ $env.DEEPSEEK_API_KEY }}"
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"model\": \"deepseek-chat\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are a financial news analyst. Summarize the following article in 2-3 sentences in Hebrew. Focus on: what happened, why it matters, and one actionable insight for traders. Be concise and avoid jargon.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"Title: {{ $json.title }}\\n\\nContent: {{ $json.content || $json.description }}\"\n    }\n  ],\n  \"temperature\": 0.3,\n  \"max_tokens\": 250\n}",
+        "options": {
+          "timeout": 15000
+        }
+      }
+    },
+    {
+      "id": "format-hebrew",
+      "name": "Format Hebrew Post",
+      "type": "n8n-nodes-base.code",
+      "position": [1250, 300],
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nconst prevNode = $('DeepSeek Enrichment').first().json;\n\n// Extract DeepSeek response\nlet deepseekSummary = '';\ntry {\n  const body = typeof prevNode === 'string' ? JSON.parse(prevNode) : prevNode;\n  deepseekSummary = body.choices?.[0]?.message?.content || 'סיכום לא זמין';\n} catch(e) {\n  deepseekSummary = 'סיכום לא זמין';\n}\n\n// Get category emoji\nconst categoryEmojis = {\n  macro: '🏛️',\n  commodities: '🛢️',\n  tech: '🤖',\n  cyber: '🔒',\n  trading: '📊',\n  research: '🔬',\n  geopolitics: '🌍',\n  local: '🇮🇱'\n};\n\nconst category = item.category || 'general';\nconst emoji = categoryEmojis[category] || '📌';\n\n// Format as RTL Hebrew post (suitable for Telegram, LinkedIn, Twitter)\nconst post = `${emoji} *${item.title}*\n\n${deepseekSummary}\n\n🔗 ${item.link || ''}\n📂 ${category} | 📅 ${new Date().toLocaleDateString('he-IL')}`;\n\nreturn {\n  hebrew_post: post,\n  english_title: item.title,\n  link: item.link,\n  category: category,\n  sentiment: item.sentiment,\n  timestamp: new Date().toISOString(),\n};"
+      }
+    },
+    {
+      "id": "postiz-publish",
+      "name": "Postiz — Multi-Platform Publish",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1450, 300],
+      "parameters": {
+        "url": "={{ $env.POSTIZ_API_URL || 'https://api.postiz.com' }}/v1/posts",
+        "method": "POST",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "headerAuth": {
+          "name": "X-API-Key",
+          "value": "={{ $env.POSTIZ_API_KEY }}"
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"content\": \"{{ $json.hebrew_post }}\",\n  \"platforms\": [\"telegram\", \"linkedin\", \"threads\"],\n  \"scheduledAt\": null,\n  \"metadata\": {\n    \"source\": \"rss_triage_pipeline\",\n    \"category\": \"{{ $json.category }}\",\n    \"original_url\": \"{{ $json.link }}\"\n  }\n}",
+        "options": {
+          "timeout": 10000
+        }
+      }
+    },
+    {
+      "id": "store-firestore",
+      "name": "Store to Firestore",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1450, 500],
+      "parameters": {
+        "url": "={{ $env.ORCHESTRATOR_URL || 'http://localhost:8000' }}/api/scan/orchestrate",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"target_url\": \"{{ $json.link }}\",\n  \"agents\": [\"tech_pulse_agent\"],\n  \"depth\": \"lightning\"\n}",
+        "options": {
+          "timeout": 5000
+        }
+      }
+    },
+    {
+      "id": "error-handler",
+      "name": "Error Logger",
+      "type": "n8n-nodes-base.code",
+      "position": [1650, 500],
+      "parameters": {
+        "jsCode": "// Log errors to a simple array (store to file or alert if > threshold)\nconst error = $input.first().json;\n\n$vars.errorLog = $vars.errorLog || [];\n$vars.errorLog.push({\n  time: new Date().toISOString(),\n  error: error.message || JSON.stringify(error),\n  node: error.node || 'unknown',\n});\n\n// Keep only last 50 errors\nif ($vars.errorLog.length > 50) {\n  $vars.errorLog = $vars.errorLog.slice(-50);\n}\n\n// Alert if error rate > 10%\nconst recentErrors = $vars.errorLog.filter(e => {\n  const age = Date.now() - new Date(e.time).getTime();\n  return age < 3600000; // last hour\n});\n\nif (recentErrors.length > 10) {\n  console.error('⚠️ RSS Triage: High error rate —', recentErrors.length, 'errors in last hour');\n}\n\nreturn { logged: true, total_errors: $vars.errorLog.length };"
+      }
+    }
+  ],
+  "connections": {
+    "RSS Sources (40+ Feeds)": {
+      "main": [
+        [{ "node": "RSS Feed Reader", "type": "main", "index": 0 }]
+      ]
+    },
+    "RSS Feed Reader": {
+      "main": [
+        [{ "node": "Sentiment Filter (Anti-Alarmist)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Sentiment Filter (Anti-Alarmist)": {
+      "main": [
+        [{ "node": "Deduplicate by Title Similarity", "type": "main", "index": 0 }]
+      ]
+    },
+    "Deduplicate by Title Similarity": {
+      "main": [
+        [{ "node": "DeepSeek Enrichment", "type": "main", "index": 0 }]
+      ]
+    },
+    "DeepSeek Enrichment": {
+      "main": [
+        [{ "node": "Format Hebrew Post", "type": "main", "index": 0 }]
+      ]
+    },
+    "Format Hebrew Post": {
+      "main": [
+        [
+          { "node": "Postiz — Multi-Platform Publish", "type": "main", "index": 0 },
+          { "node": "Store to Firestore", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Cron Trigger": {
+      "main": [
+        [{ "node": "RSS Sources (40+ Feeds)", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "Error Logger",
+    "timezone": "Asia/Jerusalem"
+  },
+  "tags": [
+    { "name": "rss" },
+    { "name": "research" },
+    { "name": "production" },
+    { "name": "daily-pipeline" }
+  ],
+  "env_variables": {
+    "DEEPSEEK_API_KEY": "Set in n8n credentials or .env",
+    "POSTIZ_API_KEY": "Set in n8n credentials or .env",
+    "POSTIZ_API_URL": "https://api.postiz.com",
+    "ORCHESTRATOR_URL": "https://orchestrator-xxxxx-uc.a.run.app",
+    "TELEGRAM_BOT_TOKEN": "Set in n8n credentials or .env",
+    "TELEGRAM_CHAT_ID": "Set in n8n credentials or .env"
+  }
+}

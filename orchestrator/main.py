@@ -41,6 +41,7 @@ from shared.events import (
 )
 from shared.pubsub_utils import publish_message, IS_CLOUD
 from shared.db import get_db
+from shared.deepseek import get_deepseek, DeepSeekError
 
 # ── FastAPI App ──────────────────────────────────────
 
@@ -351,14 +352,241 @@ def get_scan_status(request_id: str):
     )
 
 
+# ── DeepSeek Agent (Agent #3 in Swarm) ──────────────
+
+class DeepSeekPrompt(BaseModel):
+    prompt: str
+    system: Optional[str] = "You are a helpful assistant."
+    temperature: Optional[float] = 0.7
+    max_tokens: Optional[int] = 1024
+
+
+@app.post("/api/agent/deepseek")
+def deepseek_agent(payload: DeepSeekPrompt):
+    """
+    Agent #3 — DeepSeek AI.
+    Callable by Cline, Dashboard, or any agent in the swarm.
+    Uses shared DeepSeekClient with retry logic + correct /v1/ URL.
+    Requires DEEPSEEK_API_KEY environment variable.
+    """
+    client = get_deepseek()
+    if not client.is_configured:
+        raise HTTPException(
+            status_code=503,
+            detail="DeepSeek API key not configured. Set DEEPSEEK_API_KEY env var.",
+        )
+
+    try:
+        result = client.chat(
+            prompt=payload.prompt,
+            system=payload.system,
+            temperature=payload.temperature or 0.7,
+            max_tokens=payload.max_tokens or 1024,
+        )
+        return result
+    except DeepSeekError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"DeepSeek agent error: {str(e)}")
+
+
+# ── Backoffice Trader Webhook ─────────────────────
+
+class TradeAlertPayload(BaseModel):
+    """Payload for Backoffice Trader notifications."""
+    symbol: str
+    action: str  # BUY, SELL, ALERT
+    price: Optional[float] = None
+    stop_loss: Optional[float] = None
+    take_profit: Optional[float] = None
+    rationale: Optional[str] = None
+    agent_source: Optional[str] = "data_hunter_agent"  # Which agent generated this
+    notify_telegram: bool = True
+    notify_email: bool = False
+    email_to: Optional[str] = None
+
+
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")  # Default VIP channel
+SENDGRID_API_KEY = os.environ.get("SENDGRID_API_KEY", "")
+FROM_EMAIL = os.environ.get("FROM_EMAIL", "alerts@commotiai.com")
+
+
+def send_telegram_alert(message: str, chat_id: str = None) -> dict:
+    """Send a message via Telegram Bot API. Returns response dict."""
+    token = TELEGRAM_BOT_TOKEN
+    target_chat = chat_id or TELEGRAM_CHAT_ID
+
+    if not token or not target_chat:
+        return {"sent": False, "error": "TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not configured"}
+
+    try:
+        resp = requests.post(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            json={
+                "chat_id": target_chat,
+                "text": message,
+                "parse_mode": "Markdown",
+                "disable_web_page_preview": True,
+            },
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            return {"sent": True, "channel": "telegram", "chat_id": target_chat}
+        else:
+            return {"sent": False, "error": f"Telegram API returned {resp.status_code}: {resp.text[:200]}"}
+    except Exception as e:
+        return {"sent": False, "error": str(e)}
+
+
+def send_email_alert(subject: str, body: str, to_email: str) -> dict:
+    """Send an email via SendGrid. Returns response dict."""
+    if not SENDGRID_API_KEY:
+        return {"sent": False, "error": "SENDGRID_API_KEY not configured"}
+
+    try:
+        resp = requests.post(
+            "https://api.sendgrid.com/v3/mail/send",
+            headers={
+                "Authorization": f"Bearer {SENDGRID_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "personalizations": [{"to": [{"email": to_email}]}],
+                "from": {"email": FROM_EMAIL},
+                "subject": subject,
+                "content": [{"type": "text/plain", "value": body}],
+            },
+            timeout=10,
+        )
+        if resp.status_code in (200, 201, 202):
+            return {"sent": True, "channel": "email", "to": to_email}
+        else:
+            return {"sent": False, "error": f"SendGrid returned {resp.status_code}: {resp.text[:200]}"}
+    except Exception as e:
+        return {"sent": False, "error": str(e)}
+
+
+@app.post("/api/backoffice/trade-alert")
+def backoffice_trade_alert(payload: TradeAlertPayload):
+    """
+    Backoffice Trader Webhook — receives trade alerts from any agent and dispatches them.
+
+    Supported channels:
+    - Telegram (default: VIP channel)
+    - Email (via SendGrid)
+
+    Called by: Data Hunter, Tech Pulse, or any agent that generates trading signals.
+    Also callable by Cline/Dashboard as a manual override.
+    """
+    # Build alert message
+    emoji = "🟢" if payload.action.upper() == "BUY" else "🔴" if payload.action.upper() == "SELL" else "⚠️"
+
+    lines = [
+        f"{emoji} *Trade Alert — {payload.action.upper()}*",
+        f"",
+        f"*Instrument:* `{payload.symbol}`",
+    ]
+    if payload.price:
+        lines.append(f"*Price:* ${payload.price:,.2f}")
+    if payload.stop_loss:
+        lines.append(f"*Stop Loss:* ${payload.stop_loss:,.2f}")
+    if payload.take_profit:
+        lines.append(f"*Take Profit:* ${payload.take_profit:,.2f}")
+    if payload.rationale:
+        lines.append(f"")
+        lines.append(f"*Analysis:* {payload.rationale}")
+    if payload.agent_source:
+        lines.append(f"")
+        lines.append(f"🤖 _Source: {payload.agent_source}_")
+
+    message = "\n".join(lines)
+    email_body = message.replace("*", "").replace("`", "").replace("_", "")
+
+    results = []
+
+    # ── Telegram ──
+    if payload.notify_telegram:
+        tg_result = send_telegram_alert(message)
+        results.append(tg_result)
+        if tg_result.get("sent"):
+            print(f"[backoffice] Telegram alert sent: {payload.symbol} {payload.action}")
+        else:
+            print(f"[backoffice] Telegram FAILED: {tg_result.get('error')}")
+
+    # ── Email ──
+    if payload.notify_email and payload.email_to:
+        em_result = send_email_alert(
+            subject=f"Trade Alert: {payload.action} {payload.symbol} @ ${payload.price or 'N/A'}",
+            body=email_body,
+            to_email=payload.email_to,
+        )
+        results.append(em_result)
+
+    return {
+        "status": "dispatched",
+        "symbol": payload.symbol,
+        "action": payload.action,
+        "notifications": results,
+        "telegram_configured": bool(TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID),
+        "email_configured": bool(SENDGRID_API_KEY),
+    }
+
+
+# ── Agent Registry (Health + Status) ──────────────
+
+KNOWN_AGENTS = {
+    "security_agent": {
+        "type": "security",
+        "description": "Scans target URLs for security vulnerabilities, missing headers, open ports",
+        "endpoint": "security_agent",
+        "phase": 1,
+    },
+    "tech_pulse_agent": {
+        "type": "research",
+        "description": "Daily tech research via Google CSE — GitHub, ArXiv, Medium innovations",
+        "endpoint": "tech_pulse",
+        "phase": 1,
+    },
+    "data_hunter_agent": {
+        "type": "commodities",
+        "description": "Tracks Gold, Silver, Oil, DXY — daily trading insights via DeepSeek",
+        "endpoint": "data_hunter",
+        "phase": 1,
+    },
+}
+
+
+@app.get("/api/agents")
+def list_agents():
+    """List all registered agents in the swarm."""
+    return {
+        "agents": [
+            {
+                "agent_id": agent_id,
+                "type": info["type"],
+                "description": info["description"],
+                "phase": info["phase"],
+                "endpoint": f"/api/agent/{info['endpoint']}" if info.get("endpoint") else None,
+            }
+            for agent_id, info in KNOWN_AGENTS.items()
+        ],
+        "total": len(KNOWN_AGENTS),
+        "phase": "Phase 1 — Foundation + Daily Intelligence",
+    }
+
+
 # ── Main ─────────────────────────────────────────────
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     print(f"🚀 Orchestrator starting on port {port}...")
-    print(f"   Dashboard:   http://127.0.0.1:{port}/")
-    print(f"   API Docs:    http://127.0.0.1:{port}/docs")
-    print(f"   Direct Scan: POST /api/scan/security")
-    print(f"   Orchestrate: POST /api/scan/orchestrate")
-    print(f"   Cloud Mode:  {IS_CLOUD}")
+    print(f"   Dashboard:       http://127.0.0.1:{port}/")
+    print(f"   API Docs:        http://127.0.0.1:{port}/docs")
+    print(f"   Direct Scan:     POST /api/scan/security")
+    print(f"   Orchestrate:     POST /api/scan/orchestrate")
+    print(f"   DeepSeek Agent:  POST /api/agent/deepseek")
+    print(f"   Trade Alerts:    POST /api/backoffice/trade-alert")
+    print(f"   Agent Registry:  GET  /api/agents")
+    print(f"   Cloud Mode:      {IS_CLOUD}")
     uvicorn.run("orchestrator.main:app", host="0.0.0.0", port=port, reload=not IS_CLOUD)

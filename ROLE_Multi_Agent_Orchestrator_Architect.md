@@ -50,19 +50,25 @@
 
 ## 🤖 Agent Catalog — נוכחי + עתידי
 
-### ✅ Active Agents (Flask Swarm :5050)
-| Agent | File | Purpose | Status |
-|-------|------|---------|:---:|
-| 🛡️ **Cyber** | `agent_core.py` | Port scan + Security headers + OWASP | ✅ LIVE |
-| 🔬 **QA/Perf** | `agent_core.py` | Load time + Broken links | ✅ LIVE |
-| 📈 **SEO** | `agent_core.py` | Title, Meta, H1, structure | ✅ LIVE |
-| 🛒 **eBay** | `agent_core.py` | Marketplace Insights (pending keys) | 🟡 Pending |
+### ✅ Phase 1 — Foundation Agents (Active / Deploy-Ready)
 
-### ✅ Active Agents (FastAPI :8000)
-| Agent | File | Purpose | Status |
-|-------|------|---------|:---:|
-| 🛡️ **Security Scanner** | `backend_core.py` | Port scan + Headers + Score | ✅ LIVE |
-| 🧠 **DeepSeek Sales** | `backend_core.py:67` | WhatsApp pitch in Hebrew | 🟡 Needs API key |
+| Agent | Type | File | Purpose | Runtime | Status |
+|-------|------|------|---------|---------|:---:|
+| 🛡️ **Security Agent** | security | `agents/security_agent/agent.py` | Port scan + Headers + Score | Flask :8080 (Pub/Sub) | ✅ READY |
+| 🔬 **Tech Pulse** | research | `agents/tech_pulse/agent.py` | Google CSE → GitHub/ArXiv/Medium innovations → DeepSeek summary | Flask :8080 (Pub/Sub + Cron) | ✅ READY |
+| 🥇 **Data Hunter** | commodities | `agents/data_hunter/agent.py` | Gold, Silver, Oil, DXY spot prices → DeepSeek trading insights | Flask :8080 (Pub/Sub + Cron) | ✅ READY |
+| 🧠 **DeepSeek AI** | ai | `orchestrator/main.py:L363` | General-purpose AI agent — Hebrew summaries, pitches, analysis | FastAPI :8000 inline | ✅ LIVE |
+
+### 🏗️ Infrastructure Components
+
+| Component | File | Purpose | Status |
+|-----------|------|---------|:---:|
+| 📡 **Event Bus** | `shared/pubsub_utils.py` | Pub/Sub publish/subscribe for all agents | ✅ READY |
+| 💾 **Firestore DB** | `shared/db.py` | Idempotency, scan results, agent state | ✅ READY |
+| 🔄 **Orchestrator** | `orchestrator/main.py` | FastAPI :8000 — dashboard, deepseek, scan orchestration | ✅ LIVE |
+| 📱 **Backoffice Trader** | `orchestrator/main.py:L417` | Webhook → Telegram + Email trade alerts | ✅ READY |
+| ⏰ **Cloud Scheduler** | `deploy_cron_jobs.bat` | Daily cron: tech-pulse (08:00) + data-hunter (08:30 + 14:00) | ✅ SCRIPT READY |
+| 📊 **Agent Registry** | `orchestrator/main.py:L565` | GET /api/agents — list all registered agents | ✅ LIVE |
 
 ### 🔮 Future Agents (Phase 2-4)
 | Agent | Tool | Purpose | Priority |

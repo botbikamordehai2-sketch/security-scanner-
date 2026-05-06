@@ -1,0 +1,51 @@
+name: CI CD OpenClaw SignalForge
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+jobs:
+  build-and-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+      - name: Install deps
+        run: pip install -r requirements.txt
+      - name: Lint
+        run: pip install ruff && ruff check .
+      - name: Build Docker image
+        run: docker build -t gcr.io/${{ secrets.GCP_PROJECT }}/signalforge:${{ github.sha }} -f Dockerfile.fly .
+      - name: Trivy scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: gcr.io/${{ secrets.GCP_PROJECT }}/signalforge:${{ github.sha }}
+          format: table
+          exit-code: "0"
+          severity: HIGH,CRITICAL
+      - name: Check Billing Guard
+        run: python .github/scripts/check_billing.py || (echo "Billing closed - aborting" && exit 1)
+  deploy-gke:
+    needs: build-and-scan
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+      - name: Set up GKE
+        uses: google-github-actions/setup-gcloud@v1
+        with:
+          project_id: ${{ secrets.GCP_PROJECT }}
+      - name: Get GKE credentials
+        run: gcloud container clusters get-credentials ${{ secrets.GKE_CLUSTER }} --zone ${{ secrets.GKE_ZONE }}
+      - name: Deploy with Helm
+        run: |
+          helm upgrade --install signalforge ./k8s/helm \
+            --set gateway.image.tag=${{ github.sha }} \
+            --namespace signalforge --create-namespace

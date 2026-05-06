@@ -1,0 +1,51 @@
+# Default values for openclaw
+gateway:
+  replicaCount: 1
+  image:
+    repository: gcr.io/commotiai-2026/openclaw-gateway
+    tag: latest
+    pullPolicy: Always
+  service:
+    type: ClusterIP
+  ingress:
+    host: signalforge-commotai.fly.dev
+    annotations:
+      kubernetes.io/ingress.class: nginx
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+
+datahunter:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: gcr.io/commotiai-2026/datahunter
+    tag: latest
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+postgres:
+  enabled: false
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  name: ""
+
+security:
+  networkPolicy:
+    enabled: true
+  trivy:
+    scanOnBuild: true

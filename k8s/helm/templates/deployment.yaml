@@ -1,0 +1,99 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "openclaw.fullname" . }}-gateway
+  labels:
+    app: {{ include "openclaw.name" . }}
+    component: gateway
+spec:
+  replicas: {{ .Values.gateway.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ include "openclaw.name" . }}
+      component: gateway
+  template:
+    metadata:
+      labels:
+        app: {{ include "openclaw.name" . }}
+        component: gateway
+    spec:
+      serviceAccountName: {{ include "openclaw.serviceAccountName" . }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: gateway
+          image: "{{ .Values.gateway.image.repository }}:{{ .Values.gateway.image.tag }}"
+          imagePullPolicy: {{ .Values.gateway.image.pullPolicy }}
+          ports:
+            - containerPort: 3000
+              protocol: TCP
+          env:
+            - name: OPENCLAW_WORKSPACE
+              value: "/root/.openclaw/workspace"
+            - name: PORT
+              value: "3000"
+            - name: NODE_ENV
+              value: "production"
+          envFrom:
+            - secretRef:
+                name: {{ include "openclaw.fullname" . }}-secrets
+                optional: true
+          resources:
+            {{- toYaml .Values.gateway.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "openclaw.fullname" . }}-gateway
+  labels:
+    app: {{ include "openclaw.name" . }}
+    component: gateway
+spec:
+  type: {{ .Values.gateway.service.type }}
+  ports:
+    - port: 3000
+      targetPort: 3000
+      protocol: TCP
+      name: http
+  selector:
+    app: {{ include "openclaw.name" . }}
+    component: gateway
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "openclaw.fullname" . }}-gateway
+  annotations:
+    {{- toYaml .Values.gateway.ingress.annotations | nindent 4 }}
+spec:
+  rules:
+    - host: {{ .Values.gateway.ingress.host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "openclaw.fullname" . }}-gateway
+                port:
+                  number: 3000

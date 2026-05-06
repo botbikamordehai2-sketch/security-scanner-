@@ -1,0 +1,6 @@
+apiVersion: v2
+name: openclaw
+description: Helm chart for OpenClaw SignalForge - Multi-Agent Orchestrator
+type: application
+version: 1.0.0
+appVersion: "1.0.0"

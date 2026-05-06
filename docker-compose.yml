@@ -1,0 +1,27 @@
+version: "3.8"
+services:
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile.gateway
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/app
+    environment:
+      - NODE_ENV=development
+      - OPENCLAW_WORKSPACE=/root/.openclaw/workspace
+  datahunter:
+    image: yourorg/datahunter:latest
+    environment:
+      - API_KEYS_PATH=/secrets/api_keys.json
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=openclaw
+      - POSTGRES_PASSWORD=changeme
+      - POSTGRES_DB=openclaw
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+volumes:
+  pgdata:

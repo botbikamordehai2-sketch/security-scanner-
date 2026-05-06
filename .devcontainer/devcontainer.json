@@ -1,0 +1,22 @@
+{
+  "name": "openclaw-dev",
+  "image": "mcr.microsoft.com/vscode/devcontainers/javascript-node:18",
+  "features": {
+    "docker-in-docker": "latest"
+  },
+  "workspaceFolder": "/workspace",
+  "mounts": [
+    "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached"
+  ],
+  "postCreateCommand": "yarn install",
+  "forwardPorts": [3000, 9229],
+  "extensions": [
+    "ms-azuretools.vscode-docker",
+    "ms-kubernetes-tools.vscode-kubernetes-tools",
+    "googlecloudtools.cloudcode",
+    "eamodio.gitlens",
+    "esbenp.prettier-vscode",
+    "dbaeumer.vscode-eslint",
+    "aquasecurity.trivy"
+  ]
+}

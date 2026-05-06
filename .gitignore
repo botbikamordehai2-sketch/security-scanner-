@@ -9,3 +9,6 @@ local_db.json
 dist/
 build/
 .idea/
+*-sa-key.json
+*-key.json
+scanner-sa-key.json

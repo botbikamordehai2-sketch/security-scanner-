@@ -17,6 +17,8 @@ jobs:
         run: pip install -r requirements.txt
       - name: Lint
         run: pip install ruff && ruff check .
+      - name: Test
+        run: pytest agents/security_agent/test_gcp_audit.py -v --tb=short
       - name: Build Docker image
         run: docker build -t gcr.io/${{ secrets.GCP_PROJECT }}/signalforge:${{ github.sha }} -f Dockerfile.fly .
       - name: Trivy scan
@@ -26,8 +28,15 @@ jobs:
           format: table
           exit-code: "0"
           severity: HIGH,CRITICAL
+      - name: Authenticate to GCP (Billing Guard)
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
       - name: Check Billing Guard
-        run: python .github/scripts/check_billing.py || (echo "Billing closed - aborting" && exit 1)
+        env:
+          GCP_PROJECT: ${{ secrets.GCP_PROJECT }}
+          GCP_BILLING_ACCOUNT: ${{ secrets.GCP_BILLING_ACCOUNT }}
+        run: python .github/scripts/check_billing.py
   deploy-gke:
     needs: build-and-scan
     runs-on: ubuntu-latest

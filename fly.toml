@@ -8,7 +8,6 @@ kill_timeout = 5
 
 [env]
   PORT = "8080"
-  DEEPSEEK_API_KEY = "sk-03fc6db483eb49118bc5348963736939"
 
 [http_service]
   internal_port = 8080

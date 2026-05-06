@@ -18,6 +18,8 @@ jobs:
       - name: Lint
         run: pip install ruff && ruff check .
       - name: Test
+        env:
+          PYTHONPATH: agents/security_agent
         run: pytest agents/security_agent/test_gcp_audit.py -v --tb=short
       - name: Build Docker image
         run: docker build -t gcr.io/${{ secrets.GCP_PROJECT }}/signalforge:${{ github.sha }} -f Dockerfile.fly .

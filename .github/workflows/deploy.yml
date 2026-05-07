@@ -17,10 +17,29 @@ jobs:
         run: pip install -r requirements.txt
       - name: Lint
         run: pip install ruff && ruff check .
-      - name: Test
+      - name: Test (GCP Audit)
         env:
-          PYTHONPATH: agents/security_agent
-        run: pytest agents/security_agent/test_gcp_audit.py -v --tb=short
+          PYTHONPATH: ${{ github.workspace }}
+        run: pip install pytest pytest-json-report && pytest agents/security_agent/test_gcp_audit.py -v --tb=short --json-report --json-report-file=gcp_audit_test_report.json
+      - name: Test (AWS Audit)
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: pytest agents/security_agent/test_aws_audit.py -v --tb=short --json-report --json-report-file=aws_audit_test_report.json
+      - name: Test (Orchestrator)
+        run: pip install httpx && pytest agents/security_agent/test_orchestrator.py -v --tb=short --json-report --json-report-file=orchestrator_test_report.json
+      - name: Generate Findings JSON Report
+        run: python .github/scripts/generate_findings_report.py
+      - name: Upload Test Reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-reports
+          path: |
+            gcp_audit_test_report.json
+            aws_audit_test_report.json
+            orchestrator_test_report.json
+            findings_report.json
+          retention-days: 7
       - name: Build Docker image
         run: docker build -t gcr.io/${{ secrets.GCP_PROJECT }}/signalforge:${{ github.sha }} -f Dockerfile.fly .
       - name: Trivy scan

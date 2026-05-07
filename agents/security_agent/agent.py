@@ -30,6 +30,7 @@ from shared.db import get_db
 from shared.events import ScanRequest, ScanResult, ScanResponseV1, VulnerabilityItem
 from shared.pubsub_utils import publish_message, IS_CLOUD
 from gcp_audit import scan_firewall_rules, scan_storage_bucket, scan_project_iam, scan_sql_instances, scan_gke_clusters
+from shared.circuit_breaker import get_breaker, CircuitOpenError
 
 app = Flask(__name__)
 PORT = int(os.environ.get("PORT", 8080))
@@ -202,55 +203,69 @@ def run_gcp_scan(project_id: str) -> dict:
     findings = []
 
     # ── Firewall rules ──
-    firewall_client = compute_v1.FirewallsClient()
-    rules = [
-        dict(r)
-        for r in firewall_client.list(project=project_id)
-    ]
-    findings.extend(scan_firewall_rules(rules))
+    try:
+        with get_breaker("gcp-firewall"):
+            firewall_client = compute_v1.FirewallsClient()
+            rules = [dict(r) for r in firewall_client.list(project=project_id)]
+            findings.extend(scan_firewall_rules(rules))
+    except CircuitOpenError as e:
+        print(f"[gcp_scan] SKIP firewall — circuit open: {e}")
+    except Exception as e:
+        print(f"[gcp_scan] WARN firewall: {e}")
 
     # ── Storage buckets ──
-    storage_client = storage.Client(project=project_id)
-    for bucket in storage_client.list_buckets():
-        policy = storage_client.get_bucket(bucket.name).get_iam_policy(requested_policy_version=3)
-        policy_dict = {
-            "bindings": [
-                {"role": b.role, "members": list(b.members)}
-                for b in policy.bindings
-            ]
-        }
-        meta_dict = {"iamConfiguration": {"publicAccessPrevention": getattr(bucket, "public_access_prevention", "unspecified")}}
-        findings.extend(scan_storage_bucket(bucket.name, policy_dict, meta_dict))
+    try:
+        with get_breaker("gcp-storage"):
+            storage_client = storage.Client(project=project_id)
+            for bucket in storage_client.list_buckets():
+                policy = storage_client.get_bucket(bucket.name).get_iam_policy(requested_policy_version=3)
+                policy_dict = {
+                    "bindings": [{"role": b.role, "members": list(b.members)} for b in policy.bindings]
+                }
+                meta_dict = {"iamConfiguration": {"publicAccessPrevention": getattr(bucket, "public_access_prevention", "unspecified")}}
+                findings.extend(scan_storage_bucket(bucket.name, policy_dict, meta_dict))
+    except CircuitOpenError as e:
+        print(f"[gcp_scan] SKIP storage — circuit open: {e}")
+    except Exception as e:
+        print(f"[gcp_scan] WARN storage: {e}")
 
     # ── Project IAM ──
-    from google.cloud import resourcemanager_v3
-    rm_client = resourcemanager_v3.ProjectsClient()
-    iam_policy = rm_client.get_iam_policy(request={"resource": f"projects/{project_id}"})
-    iam_policy_dict = {
-        "bindings": [
-            {"role": b.role, "members": list(b.members)}
-            for b in iam_policy.bindings
-        ]
-    }
-    findings.extend(scan_project_iam(project_id, iam_policy_dict))
+    try:
+        with get_breaker("gcp-iam"):
+            from google.cloud import resourcemanager_v3
+            rm_client = resourcemanager_v3.ProjectsClient()
+            iam_policy = rm_client.get_iam_policy(request={"resource": f"projects/{project_id}"})
+            iam_policy_dict = {
+                "bindings": [{"role": b.role, "members": list(b.members)} for b in iam_policy.bindings]
+            }
+            findings.extend(scan_project_iam(project_id, iam_policy_dict))
+    except CircuitOpenError as e:
+        print(f"[gcp_scan] SKIP iam — circuit open: {e}")
+    except Exception as e:
+        print(f"[gcp_scan] WARN iam: {e}")
 
     # ── Cloud SQL ──
     try:
-        sql_service = gcp_build("sqladmin", "v1", cache_discovery=False)
-        sql_resp = sql_service.instances().list(project=project_id).execute()
-        sql_instances = sql_resp.get("items", [])
-        findings.extend(scan_sql_instances(sql_instances))
+        with get_breaker("gcp-sql"):
+            sql_service = gcp_build("sqladmin", "v1", cache_discovery=False)
+            sql_resp = sql_service.instances().list(project=project_id).execute()
+            findings.extend(scan_sql_instances(sql_resp.get("items", [])))
+    except CircuitOpenError as e:
+        print(f"[gcp_scan] SKIP sql — circuit open: {e}")
     except Exception as e:
-        print(f"[gcp_scan] WARN: Could not list Cloud SQL instances: {e}")
+        print(f"[gcp_scan] WARN sql: {e}")
 
     # ── GKE clusters ──
     try:
-        gke_client = container_v1.ClusterManagerClient()
-        gke_resp = gke_client.list_clusters(parent=f"projects/{project_id}/locations/-")
-        clusters = [type(c).to_dict(c) for c in gke_resp.clusters]
-        findings.extend(scan_gke_clusters(clusters))
+        with get_breaker("gcp-gke"):
+            gke_client = container_v1.ClusterManagerClient()
+            gke_resp = gke_client.list_clusters(parent=f"projects/{project_id}/locations/-")
+            clusters = [type(c).to_dict(c) for c in gke_resp.clusters]
+            findings.extend(scan_gke_clusters(clusters))
+    except CircuitOpenError as e:
+        print(f"[gcp_scan] SKIP gke — circuit open: {e}")
     except Exception as e:
-        print(f"[gcp_scan] WARN: Could not list GKE clusters: {e}")
+        print(f"[gcp_scan] WARN gke: {e}")
 
     severity_order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
     findings.sort(key=lambda f: severity_order.get(f.severity, 9))

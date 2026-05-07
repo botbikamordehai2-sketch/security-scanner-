@@ -533,6 +533,335 @@ def backoffice_trade_alert(payload: TradeAlertPayload):
     }
 
 
+# ── GCP Security Audit (Phase 2) ──────────────────
+
+class GcpScanPayload(BaseModel):
+    project_id: str
+    scan_types: Optional[List[str]] = None  # e.g. ["firewall", "storage", "iam", "sql", "gke"]
+    output_format: Optional[str] = "json"  # json | html
+
+GCP_AUDIT_AVAILABLE = False
+try:
+    from agents.security_agent.gcp_audit import (
+        scan_firewall_rules,
+        scan_storage_bucket,
+        scan_project_iam,
+        scan_sql_instances,
+        scan_gke_clusters,
+        Finding,
+    )
+    GCP_AUDIT_AVAILABLE = True
+except ImportError:
+    pass
+
+
+@app.post("/api/scan/gcp")
+def run_gcp_audit(payload: GcpScanPayload):
+    """
+    Run structured GCP security audit across 10 checks.
+    Covers: Firewall, Storage, IAM, Cloud SQL, GKE.
+    
+    When GCP APIs are available (Cloud Run with SA), runs real scans.
+    When running locally (no GCP credentials), returns a helpful stub
+    showing which checks would have run.
+    """
+    if not GCP_AUDIT_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail="GCP audit module not available. Ensure agents/security_agent/gcp_audit.py is importable."
+        )
+
+    project_id = payload.project_id.strip()
+    if not project_id:
+        raise HTTPException(status_code=400, detail="project_id is required")
+
+    requested_scans = payload.scan_types or ["firewall", "storage", "iam", "sql", "gke"]
+    all_findings: list = []
+    scan_summary: dict = {}
+    api_errors: list = []
+
+    # Check if GCP APIs are actually available (not just the module)
+    try:
+        from google.cloud import compute_v1, storage, resourcemanager_v3, sql_v1, container_v1
+        GCP_APIS_AVAILABLE = True
+    except ImportError:
+        GCP_APIS_AVAILABLE = False
+
+    # ── Firewall ──
+    if "firewall" in requested_scans:
+        if GCP_APIS_AVAILABLE:
+            try:
+                client = compute_v1.FirewallsClient()
+                rules = list(client.list(project=project_id))
+                findings = scan_firewall_rules([r.__class__.to_dict(r) for r in rules])
+                all_findings.extend(findings)
+                scan_summary["firewall"] = {"rules_scanned": len(rules), "findings": len(findings)}
+            except Exception as e:
+                api_errors.append({"resource": "firewall", "error": str(e)})
+                scan_summary["firewall"] = {"status": "error", "error": str(e)}
+        else:
+            scan_summary["firewall"] = {"status": "skipped", "reason": "GCP APIs not available locally"}
+
+    # ── Storage ──
+    if "storage" in requested_scans:
+        if GCP_APIS_AVAILABLE:
+            try:
+                storage_client = storage.Client(project=project_id)
+                buckets = list(storage_client.list_buckets())
+                bucket_findings = []
+                for bucket in buckets:
+                    policy = bucket.get_iam_policy()
+                    bucket_meta = {"name": bucket.name, "iamConfiguration": {"publicAccessPrevention": bucket.iam_configuration.public_access_prevention.value if bucket.iam_configuration else "unspecified"}}
+                    bucket_findings.extend(scan_storage_bucket(bucket.name, policy, bucket_meta))
+                all_findings.extend(bucket_findings)
+                scan_summary["storage"] = {"buckets_scanned": len(buckets), "findings": len(bucket_findings)}
+            except Exception as e:
+                api_errors.append({"resource": "storage", "error": str(e)})
+                scan_summary["storage"] = {"status": "error", "error": str(e)}
+        else:
+            scan_summary["storage"] = {"status": "skipped", "reason": "GCP APIs not available locally"}
+
+    # ── IAM ──
+    if "iam" in requested_scans:
+        if GCP_APIS_AVAILABLE:
+            try:
+                rm_client = resourcemanager_v3.ProjectsClient()
+                request = resourcemanager_v3.GetIamPolicyRequest(resource=f"projects/{project_id}")
+                policy = rm_client.get_iam_policy(request=request)
+                # Convert proto to dict
+                policy_dict = {
+                    "bindings": [
+                        {"role": b.role, "members": list(b.members)}
+                        for b in policy.bindings
+                    ]
+                }
+                iam_findings = scan_project_iam(project_id, policy_dict)
+                all_findings.extend(iam_findings)
+                scan_summary["iam"] = {"bindings_scanned": len(policy.bindings), "findings": len(iam_findings)}
+            except Exception as e:
+                api_errors.append({"resource": "iam", "error": str(e)})
+                scan_summary["iam"] = {"status": "error", "error": str(e)}
+        else:
+            scan_summary["iam"] = {"status": "skipped", "reason": "GCP APIs not available locally"}
+
+    # ── Cloud SQL ──
+    if "sql" in requested_scans:
+        if GCP_APIS_AVAILABLE:
+            try:
+                sql_client = sql_v1.SqlInstancesServiceClient()
+                parent = f"projects/{project_id}"
+                instances = list(sql_client.list(project=project_id))
+                sql_findings = scan_sql_instances([i.__class__.to_dict(i) for i in instances])
+                all_findings.extend(sql_findings)
+                scan_summary["sql"] = {"instances_scanned": len(instances), "findings": len(sql_findings)}
+            except Exception as e:
+                api_errors.append({"resource": "sql", "error": str(e)})
+                scan_summary["sql"] = {"status": "error", "error": str(e)}
+        else:
+            scan_summary["sql"] = {"status": "skipped", "reason": "GCP APIs not available locally"}
+
+    # ── GKE ──
+    if "gke" in requested_scans:
+        if GCP_APIS_AVAILABLE:
+            try:
+                gke_client = container_v1.ClusterManagerClient()
+                parent = f"projects/{project_id}/locations/-"
+                clusters = list(gke_client.list_clusters(parent=parent).clusters)
+                gke_findings = scan_gke_clusters([c.__class__.to_dict(c) for c in clusters])
+                all_findings.extend(gke_findings)
+                scan_summary["gke"] = {"clusters_scanned": len(clusters), "findings": len(gke_findings)}
+            except Exception as e:
+                api_errors.append({"resource": "gke", "error": str(e)})
+                scan_summary["gke"] = {"status": "error", "error": str(e)}
+        else:
+            scan_summary["gke"] = {"status": "skipped", "reason": "GCP APIs not available locally"}
+
+    # ── Severity summary ──
+    severity_counts = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0}
+    for f in all_findings:
+        severity_counts[f.severity] = severity_counts.get(f.severity, 0) + 1
+
+    return {
+        "project_id": project_id,
+        "scan_summary": scan_summary,
+        "total_findings": len(all_findings),
+        "severity_counts": severity_counts,
+        "findings": [
+            {
+                "resource_id": f.resource_id,
+                "resource_type": f.resource_type,
+                "severity": f.severity,
+                "title": f.title,
+                "description": f.description,
+                "recommendation": f.recommendation,
+            }
+            for f in all_findings
+        ],
+        "api_errors": api_errors if api_errors else None,
+        "gcp_apis_available": GCP_APIS_AVAILABLE,
+        "checks_available": [
+            "check_firewall_public_ssh",
+            "check_storage_public_iam",
+            "check_storage_public_prevention",
+            "check_iam_overpermissive_sa",
+            "check_iam_allauth_project",
+            "check_sql_public_ip",
+            "check_sql_no_backup",
+            "check_gke_dashboard_enabled",
+            "check_gke_legacy_auth",
+            "check_gke_public_nodes",
+        ],
+    }
+
+
+# ── AWS Security Audit ────────────────────────────
+
+class AwsScanPayload(BaseModel):
+    region: str = "us-east-1"
+    scan_types: Optional[List[str]] = None  # ["s3", "iam", "ec2"]
+
+
+AWS_AUDIT_AVAILABLE = False
+try:
+    from agents.security_agent.aws_audit import (
+        scan_s3_bucket,
+        check_iam_root_access_key,
+        check_iam_root_mfa,
+        check_iam_stale_access_key,
+        scan_security_groups,
+    )
+    AWS_AUDIT_AVAILABLE = True
+except ImportError:
+    pass
+
+
+@app.post("/api/scan/aws")
+def run_aws_audit(payload: AwsScanPayload):
+    """
+    Run structured AWS security audit.
+    Covers: S3 ACL/Encryption/Block, IAM credentials, Security Groups.
+    Requires boto3 + AWS credentials (env vars or IAM role).
+    """
+    if not AWS_AUDIT_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail="AWS audit module not available.",
+        )
+
+    requested_scans = payload.scan_types or ["s3", "iam", "ec2"]
+    all_findings: list = []
+    scan_summary: dict = {}
+    api_errors: list = []
+
+    try:
+        import boto3
+        AWS_APIS_AVAILABLE = True
+    except ImportError:
+        AWS_APIS_AVAILABLE = False
+
+    if not AWS_APIS_AVAILABLE:
+        return {
+            "region": payload.region,
+            "total_findings": 0,
+            "findings": [],
+            "scan_summary": {t: {"status": "skipped", "reason": "boto3 not installed"} for t in requested_scans},
+            "aws_apis_available": False,
+        }
+
+    # ── S3 ──
+    if "s3" in requested_scans:
+        try:
+            s3 = boto3.client("s3", region_name=payload.region)
+            buckets = s3.list_buckets().get("Buckets", [])
+            bucket_findings = []
+            for bucket in buckets:
+                name = bucket["Name"]
+                acl = s3.get_bucket_acl(Bucket=name)
+                try:
+                    block = s3.get_public_access_block(Bucket=name)
+                except Exception:
+                    block = {}
+                try:
+                    enc = s3.get_bucket_encryption(Bucket=name)
+                except Exception:
+                    enc = {}
+                bucket_findings.extend(scan_s3_bucket(name, acl, block, enc))
+            all_findings.extend(bucket_findings)
+            scan_summary["s3"] = {"buckets_scanned": len(buckets), "findings": len(bucket_findings)}
+        except Exception as e:
+            api_errors.append({"resource": "s3", "error": str(e)})
+            scan_summary["s3"] = {"status": "error", "error": str(e)}
+
+    # ── IAM ──
+    if "iam" in requested_scans:
+        try:
+            import csv, io, time as _time
+            iam = boto3.client("iam", region_name=payload.region)
+            iam.generate_credential_report()
+            _time.sleep(2)
+            report_csv = iam.get_credential_report()["Content"].decode("utf-8")
+            reader = csv.DictReader(io.StringIO(report_csv))
+            iam_findings = []
+            for row in reader:
+                for checker in [check_iam_root_access_key, check_iam_root_mfa]:
+                    f = checker(row)
+                    if f:
+                        iam_findings.append(f)
+            users = iam.list_users().get("Users", [])
+            for user in users:
+                keys = iam.list_access_keys(UserName=user["UserName"]).get("AccessKeyMetadata", [])
+                for key in keys:
+                    f = check_iam_stale_access_key(user["UserName"], key)
+                    if f:
+                        iam_findings.append(f)
+            all_findings.extend(iam_findings)
+            scan_summary["iam"] = {"users_scanned": len(users), "findings": len(iam_findings)}
+        except Exception as e:
+            api_errors.append({"resource": "iam", "error": str(e)})
+            scan_summary["iam"] = {"status": "error", "error": str(e)}
+
+    # ── EC2 Security Groups ──
+    if "ec2" in requested_scans:
+        try:
+            ec2 = boto3.client("ec2", region_name=payload.region)
+            paginator = ec2.get_paginator("describe_security_groups")
+            groups = [sg for page in paginator.paginate() for sg in page["SecurityGroups"]]
+            sg_findings = scan_security_groups(groups)
+            all_findings.extend(sg_findings)
+            scan_summary["ec2"] = {"security_groups_scanned": len(groups), "findings": len(sg_findings)}
+        except Exception as e:
+            api_errors.append({"resource": "ec2", "error": str(e)})
+            scan_summary["ec2"] = {"status": "error", "error": str(e)}
+
+    severity_counts = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0}
+    for f in all_findings:
+        severity_counts[f.severity] = severity_counts.get(f.severity, 0) + 1
+
+    severity_order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+    all_findings.sort(key=lambda f: severity_order.get(f.severity, 9))
+
+    return {
+        "provider": "aws",
+        "region": payload.region,
+        "total_findings": len(all_findings),
+        "severity_counts": severity_counts,
+        "scan_summary": scan_summary,
+        "findings": [
+            {
+                "resource_id": f.resource_id,
+                "resource_type": f.resource_type,
+                "severity": f.severity,
+                "title": f.title,
+                "description": f.description,
+                "recommendation": f.recommendation,
+            }
+            for f in all_findings
+        ],
+        "api_errors": api_errors if api_errors else None,
+        "aws_apis_available": AWS_APIS_AVAILABLE,
+    }
+
+
 # ── Agent Registry (Health + Status) ──────────────
 
 KNOWN_AGENTS = {
@@ -588,5 +917,7 @@ if __name__ == "__main__":
     print(f"   DeepSeek Agent:  POST /api/agent/deepseek")
     print(f"   Trade Alerts:    POST /api/backoffice/trade-alert")
     print(f"   Agent Registry:  GET  /api/agents")
+    print(f"   GCP Audit:       POST /api/scan/gcp")
+    print(f"   AWS Audit:       POST /api/scan/aws")
     print(f"   Cloud Mode:      {IS_CLOUD}")
     uvicorn.run("orchestrator.main:app", host="0.0.0.0", port=port, reload=not IS_CLOUD)

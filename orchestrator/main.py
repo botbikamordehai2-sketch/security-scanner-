@@ -862,6 +862,98 @@ def run_aws_audit(payload: AwsScanPayload):
     }
 
 
+# ── OSINT Impact Scoring (causal_osint) ───────────
+
+OSINT_AVAILABLE = False
+try:
+    from agents.causal_osint.cvss_epss import assess_vulnerability, scan_cve_batch, CvssVector
+    OSINT_AVAILABLE = True
+except ImportError:
+    pass
+
+
+class CvePayload(BaseModel):
+    cve_id: str
+    description: str
+    cvss_vector: Optional[str] = None
+    has_poc: bool = False
+    in_cisa_kev: bool = False
+    days_since_published: float = 30.0
+    exploit_maturity: str = "unproven"
+
+
+class CveBatchPayload(BaseModel):
+    cves: List[Dict[str, Any]]
+
+
+@app.post("/api/osint/impact/score")
+def osint_impact_score(payload: CvePayload):
+    """
+    CVSS v3.1 + EPSS impact scoring for a single CVE.
+    If cvss_vector is omitted, AgenticVM predicts it from the description.
+    Returns: base_score, severity, EPSS probability, priority level, recommendation.
+    """
+    if not OSINT_AVAILABLE:
+        raise HTTPException(status_code=503, detail="causal_osint module not available")
+
+    cvss = None
+    if payload.cvss_vector:
+        cvss = CvssVector.from_string(payload.cvss_vector)
+
+    assessment = assess_vulnerability(
+        cve_id=payload.cve_id,
+        description=payload.description,
+        cvss=cvss,
+        has_poc=payload.has_poc,
+        in_cisa_kev=payload.in_cisa_kev,
+        days_since_published=payload.days_since_published,
+        exploit_maturity=payload.exploit_maturity,
+    )
+
+    return {
+        "cve_id": assessment.cve_id,
+        "cvss_vector": assessment.cvss_vector.to_string(),
+        "cvss_base_score": assessment.cvss_base_score,
+        "cvss_severity": assessment.cvss_severity,
+        "epss_score": assessment.epss_score,
+        "epss_percentile": assessment.epss_percentile,
+        "priority": assessment.priority.value,
+        "recommendation": assessment.recommendation(),
+        "has_poc": assessment.has_poc,
+        "in_cisa_kev": assessment.in_cisa_kev,
+        "predicted_fields": assessment.predicted_fields,
+    }
+
+
+@app.post("/api/osint/impact/batch")
+def osint_impact_batch(payload: CveBatchPayload):
+    """
+    CVSS + EPSS batch scoring — assess multiple CVEs, sorted by priority (P1 first).
+    """
+    if not OSINT_AVAILABLE:
+        raise HTTPException(status_code=503, detail="causal_osint module not available")
+
+    if not payload.cves:
+        raise HTTPException(status_code=400, detail="cves list is required")
+
+    results = scan_cve_batch(payload.cves)
+
+    return {
+        "total": len(results),
+        "assessments": [
+            {
+                "cve_id": a.cve_id,
+                "cvss_base_score": a.cvss_base_score,
+                "cvss_severity": a.cvss_severity,
+                "epss_score": a.epss_score,
+                "priority": a.priority.value,
+                "recommendation": a.recommendation(),
+            }
+            for a in results
+        ],
+    }
+
+
 # ── Execution Journal API ─────────────────────────
 
 try:
@@ -909,6 +1001,13 @@ KNOWN_AGENTS = {
         "endpoint": "data_hunter",
         "phase": 1,
     },
+    "causal_osint_agent": {
+        "type": "intelligence",
+        "description": "Tier 1 Causal OSINT — SCM do-calculus, SemDeDup dedup, Bayesian reputation, CVSS/EPSS scoring, PurifyGen adversarial defense",
+        "endpoint": "causal_osint",
+        "phase": 2,
+        "port": 8080,
+    },
 }
 
 
@@ -931,19 +1030,83 @@ def list_agents():
     }
 
 
+# ── Causal OSINT Agent Proxy (Phase 2 — Tier 1) ────
+
+CAUSAL_OSINT_HOST = os.environ.get("CAUSAL_OSINT_HOST", "http://127.0.0.1:8080")
+
+
+def _proxy_to_causal_osint(path: str, body: dict = None) -> dict:
+    """Forward a request to the Causal OSINT agent and return its response."""
+    url = f"{CAUSAL_OSINT_HOST}{path}"
+    try:
+        if body is not None:
+            resp = requests.post(url, json=body, timeout=60)
+        else:
+            resp = requests.get(url, timeout=10)
+        if resp.status_code >= 400:
+            raise HTTPException(status_code=resp.status_code, detail=resp.text)
+        return resp.json()
+    except requests.exceptions.ConnectionError:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Causal OSINT agent not reachable at {CAUSAL_OSINT_HOST}. Start it with: python agents/causal_osint/agent.py",
+        )
+    except requests.exceptions.Timeout:
+        raise HTTPException(status_code=504, detail="Causal OSINT agent timed out")
+
+
+@app.get("/api/agent/causal-osint/health")
+def causal_osint_health():
+    """Proxy: health check for the Causal OSINT Tier 1 agent."""
+    return _proxy_to_causal_osint("/api/osint/health")
+
+
+@app.post("/api/agent/causal-osint/ingest")
+def causal_osint_ingest(payload: Dict[str, Any]):
+    """Proxy: ingest OSINT documents → SemDeDup + adversarial scoring."""
+    return _proxy_to_causal_osint("/api/osint/ingest", body=payload)
+
+
+@app.post("/api/agent/causal-osint/causal-query")
+def causal_osint_causal_query(payload: Dict[str, Any]):
+    """Proxy: do(X=x) intervention / counterfactual / ACE via SCM."""
+    return _proxy_to_causal_osint("/api/osint/causal/query", body=payload)
+
+
+@app.post("/api/agent/causal-osint/reputation")
+def causal_osint_reputation(payload: Dict[str, Any]):
+    """Proxy: Bayesian reputation update, RAGRank, indicator management."""
+    return _proxy_to_causal_osint("/api/osint/reputation/score", body=payload)
+
+
+@app.post("/api/agent/causal-osint/impact")
+def causal_osint_impact(payload: Dict[str, Any]):
+    """Proxy: CVSS + EPSS vulnerability assessment (AgenticVM)."""
+    return _proxy_to_causal_osint("/api/osint/impact/score", body=payload)
+
+
+@app.post("/api/agent/causal-osint/adversarial-check")
+def causal_osint_adversarial_check(payload: Dict[str, Any]):
+    """Proxy: PurifyGen adversarial detection + coordinated attack detection."""
+    return _proxy_to_causal_osint("/api/osint/adversarial/check", body=payload)
+
+
 # ── Main ─────────────────────────────────────────────
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     print(f"🚀 Orchestrator starting on port {port}...")
-    print(f"   Dashboard:       http://127.0.0.1:{port}/")
-    print(f"   API Docs:        http://127.0.0.1:{port}/docs")
-    print(f"   Direct Scan:     POST /api/scan/security")
-    print(f"   Orchestrate:     POST /api/scan/orchestrate")
-    print(f"   DeepSeek Agent:  POST /api/agent/deepseek")
-    print(f"   Trade Alerts:    POST /api/backoffice/trade-alert")
-    print(f"   Agent Registry:  GET  /api/agents")
-    print(f"   GCP Audit:       POST /api/scan/gcp")
-    print(f"   AWS Audit:       POST /api/scan/aws")
-    print(f"   Cloud Mode:      {IS_CLOUD}")
+    print(f"   Dashboard:          http://127.0.0.1:{port}/")
+    print(f"   API Docs:           http://127.0.0.1:{port}/docs")
+    print(f"   Direct Scan:        POST /api/scan/security")
+    print(f"   Orchestrate:        POST /api/scan/orchestrate")
+    print(f"   DeepSeek Agent:     POST /api/agent/deepseek")
+    print(f"   Causal OSINT:       POST /api/agent/causal-osint/*")
+    print(f"   Trade Alerts:       POST /api/backoffice/trade-alert")
+    print(f"   Agent Registry:     GET  /api/agents")
+    print(f"   GCP Audit:          POST /api/scan/gcp")
+    print(f"   AWS Audit:          POST /api/scan/aws")
+    print(f"   OSINT Score:        POST /api/osint/impact/score")
+    print(f"   OSINT Batch:        POST /api/osint/impact/batch")
+    print(f"   Cloud Mode:         {IS_CLOUD}")
     uvicorn.run("orchestrator.main:app", host="0.0.0.0", port=port, reload=not IS_CLOUD)

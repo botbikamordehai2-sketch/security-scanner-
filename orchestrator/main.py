@@ -862,6 +862,32 @@ def run_aws_audit(payload: AwsScanPayload):
     }
 
 
+# ── Execution Journal API ─────────────────────────
+
+try:
+    from shared.journal import ExecutionJournal as _Journal
+    _global_journal = _Journal()
+    JOURNAL_AVAILABLE = True
+except ImportError:
+    JOURNAL_AVAILABLE = False
+
+
+@app.get("/api/journal")
+def get_journal(n: int = 50):
+    """Return the last N execution journal entries."""
+    if not JOURNAL_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Journal not available")
+    return {"entries": _global_journal.recent(n)}
+
+
+@app.get("/api/journal/stats")
+def get_journal_stats():
+    """Return aggregated execution stats: cost, success rate, providers."""
+    if not JOURNAL_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Journal not available")
+    return _global_journal.stats()
+
+
 # ── Agent Registry (Health + Status) ──────────────
 
 KNOWN_AGENTS = {

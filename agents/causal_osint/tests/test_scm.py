@@ -93,7 +93,6 @@ class TestDoCalculus:
         scm.set_node("PoC_Published", 0.9)
         scm.set_node("CVE_Score", 8.5)
 
-        before = dict(scm.state)
         result = scm.do_intervention("Patch_Rate", 0.9, steps=5)
 
         assert "intervention" in result
@@ -120,11 +119,9 @@ class TestDoCalculus:
 
         # Run forward to get baseline
         scm.forward(3)
-        baseline_ip = scm.get_node("IP_Scans")
 
         # do(Patch_Rate=0.9) — strong patching
         result = scm.do_intervention("Patch_Rate", 0.9, steps=5)
-        delta_ip = result["delta"].get("IP_Scans", 0)
 
         # On average, higher Patch_Rate should reduce scanning
         # (This is probabilistic; we check the expected direction)

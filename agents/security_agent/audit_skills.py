@@ -11,12 +11,11 @@ Usage:
 
 import hashlib
 import json
-import os
 import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List
 
 # ── Configuration ────────────────────────────────────
 
@@ -191,8 +190,6 @@ def check_docker_sandbox() -> Dict:
             if inspect.returncode == 0:
                 data = json.loads(inspect.stdout)[0]
                 host_config = data.get("HostConfig", {})
-                config = data.get("Config", {})
-
                 # Security options
                 security_opts = host_config.get("SecurityOpt", [])
                 result["security_opts"] = security_opts

@@ -18,7 +18,7 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 # ── Add project root to path ──
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -28,7 +28,7 @@ import httpx
 from flask import Flask, request, jsonify
 
 from shared.db import get_db
-from shared.events import ScanRequest, ScanResult, ScanResponseV1
+from shared.events import ScanResult
 from shared.pubsub_utils import publish_message, IS_CLOUD
 from shared.deepseek import get_deepseek
 
@@ -216,7 +216,6 @@ def handle_pubsub_push():
         return ("", 204)
 
     request_id = payload.get("request_id", "manual")
-    depth = payload.get("depth", "standard")
     days_back = payload.get("options", {}).get("days_back", 7)
 
     print(f"[tech_pulse] Received research request {request_id} — scanning last {days_back} days")
@@ -305,7 +304,7 @@ def manual_trigger():
             "top_innovations": summary.get("top_innovations", []),
         }
         status = "success"
-    except Exception as e:
+    except Exception:
         data = {}
         status = "error"
 

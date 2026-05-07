@@ -98,7 +98,6 @@ def publish_message(
 
 def publish_scan_request(request_data: "ScanRequest") -> Optional[str]:
     """Publish a ScanRequest to the scan.requests topic."""
-    from shared.events import ScanRequest
 
     payload = request_data.model_dump_json() if hasattr(request_data, 'model_dump_json') else json.dumps(request_data)
     return publish_message(
@@ -110,7 +109,6 @@ def publish_scan_request(request_data: "ScanRequest") -> Optional[str]:
 
 def publish_scan_result(result_data: "ScanResult") -> Optional[str]:
     """Publish a ScanResult to the scan.results topic."""
-    from shared.events import ScanResult
 
     payload = result_data.model_dump_json() if hasattr(result_data, 'model_dump_json') else json.dumps(result_data)
     return publish_message(
@@ -199,8 +197,7 @@ def mock_pubsub_callback(topic_name: str, handler):
         raise RuntimeError("mock_pubsub_callback is for local dev only")
 
     import threading
-    import time
-    from flask import Flask, request, jsonify
+    from flask import Flask, request
 
     app = Flask(__name__)
 

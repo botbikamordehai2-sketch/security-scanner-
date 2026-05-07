@@ -34,7 +34,6 @@ import math
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
 
 
 # ---------------------------------------------------------------------------
@@ -307,7 +306,6 @@ class ReputationEngine:
 
         # ── RAGRank adjustment ─────────────────────────────────────
         # Boost credibility based on accumulated author authority
-        ragrank_boost = min(0.15, profile.credential_score * 0.05)
         if profile.confirmed_reports > 5:
             raw_accuracy = profile.confirmed_reports / max(profile.total_reports, 1)
             # Blend Bayesian posterior with empirical accuracy

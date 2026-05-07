@@ -327,9 +327,11 @@ def run_aws_scan(region: str = "us-east-1") -> dict:
         with get_breaker("aws-iam"):
             iam = boto3.client("iam", region_name=region)
             iam.generate_credential_report()
-            import time; time.sleep(2)
+            import time
+            time.sleep(2)
             report_csv = iam.get_credential_report()["Content"].decode("utf-8")
-            import csv, io
+            import csv
+            import io
             reader = csv.DictReader(io.StringIO(report_csv))
             for row in reader:
                 f = check_iam_root_access_key(row)

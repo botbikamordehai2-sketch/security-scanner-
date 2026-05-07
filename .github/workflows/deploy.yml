@@ -1,34 +1,56 @@
-name: CI CD OpenClaw SignalForge
+name: CI/CD — SignalForge
+
 on:
   push:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+
 jobs:
-  build-and-scan:
+  test-and-lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python
+
+      - name: Set up Python 3.11
         uses: actions/setup-python@v4
         with:
           python-version: "3.11"
+
       - name: Install deps
         run: pip install -r requirements.txt
+
+      - name: Install test extras
+        run: pip install ruff pytest pytest-json-report httpx
+
       - name: Lint
-        run: pip install ruff && ruff check .
+        run: ruff check .
+
       - name: Test (GCP Audit)
         env:
           PYTHONPATH: ${{ github.workspace }}
-        run: pip install pytest pytest-json-report && pytest agents/security_agent/test_gcp_audit.py -v --tb=short --json-report --json-report-file=gcp_audit_test_report.json
+        run: pytest agents/security_agent/test_gcp_audit.py -v --tb=short --json-report --json-report-file=gcp_audit_test_report.json
+
       - name: Test (AWS Audit)
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: pytest agents/security_agent/test_aws_audit.py -v --tb=short --json-report --json-report-file=aws_audit_test_report.json
+
       - name: Test (Orchestrator)
-        run: pip install httpx && pytest agents/security_agent/test_orchestrator.py -v --tb=short --json-report --json-report-file=orchestrator_test_report.json
-      - name: Generate Findings JSON Report
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: pytest agents/security_agent/test_orchestrator.py -v --tb=short --json-report --json-report-file=orchestrator_test_report.json
+
+      - name: Test (Execution Wrapper)
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: pytest shared/test_execution_wrapper.py -v --tb=short
+
+      - name: Generate Findings Report
+        env:
+          PYTHONPATH: ${{ github.workspace }}
         run: python .github/scripts/generate_findings_report.py
+
       - name: Upload Test Reports
         uses: actions/upload-artifact@v4
         if: always()
@@ -40,42 +62,18 @@ jobs:
             orchestrator_test_report.json
             findings_report.json
           retention-days: 7
-      - name: Build Docker image
-        run: docker build -t gcr.io/${{ secrets.GCP_PROJECT }}/signalforge:${{ github.sha }} -f Dockerfile.fly .
-      - name: Trivy scan
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: gcr.io/${{ secrets.GCP_PROJECT }}/signalforge:${{ github.sha }}
-          format: table
-          exit-code: "0"
-          severity: HIGH,CRITICAL
-      - name: Authenticate to GCP (Billing Guard)
-        uses: google-github-actions/auth@v1
-        with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
-      - name: Check Billing Guard
-        env:
-          GCP_PROJECT: ${{ secrets.GCP_PROJECT }}
-          GCP_BILLING_ACCOUNT: ${{ secrets.GCP_BILLING_ACCOUNT }}
-        run: python .github/scripts/check_billing.py
-  deploy-gke:
-    needs: build-and-scan
+
+  deploy:
+    needs: test-and-lint
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
-      - name: Authenticate to GCP
-        uses: google-github-actions/auth@v1
-        with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
-      - name: Set up GKE
-        uses: google-github-actions/setup-gcloud@v1
-        with:
-          project_id: ${{ secrets.GCP_PROJECT }}
-      - name: Get GKE credentials
-        run: gcloud container clusters get-credentials ${{ secrets.GKE_CLUSTER }} --zone ${{ secrets.GKE_ZONE }}
-      - name: Deploy with Helm
-        run: |
-          helm upgrade --install signalforge ./k8s/helm \
-            --set gateway.image.tag=${{ github.sha }} \
-            --namespace signalforge --create-namespace
+
+      - name: Set up Fly CLI
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy to Fly.io
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: flyctl deploy --remote-only --config fly.toml

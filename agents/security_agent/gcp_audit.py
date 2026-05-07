@@ -4,7 +4,6 @@ Complements audit_skills.py (file/pattern scanner) with cloud resource checks.
 """
 
 from dataclasses import dataclass, field
-from typing import Any
 
 
 @dataclass
@@ -420,14 +419,6 @@ def check_gke_legacy_auth(cluster: dict) -> Finding | None:
 def check_gke_public_nodes(cluster: dict) -> Finding | None:
     """Detect GKE node pools with public IP addresses assigned to nodes."""
     name = cluster.get("name", "unknown")
-    node_pools = cluster.get("nodePools", [])
-
-    public_pools = [
-        pool["name"]
-        for pool in node_pools
-        if pool.get("config", {}).get("metadata", {}).get("disable-legacy-endpoints") != "true"
-        or not pool.get("networkConfig", {}).get("enablePrivateNodes", False)
-    ]
 
     # Simpler signal: cluster-level privateClusterConfig
     private_config = cluster.get("privateClusterConfig", {})

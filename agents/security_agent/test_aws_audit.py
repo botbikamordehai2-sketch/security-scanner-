@@ -34,7 +34,6 @@ def acl_private():
     return {"Grants": [{"Grantee": {"Type": "CanonicalUser"}, "Permission": "FULL_CONTROL"}]}
 
 def block(all_true=True):
-    v = str(all_true).lower()
     return {"PublicAccessBlockConfiguration": {
         "BlockPublicAcls": all_true, "BlockPublicPolicy": all_true,
         "IgnorePublicAcls": all_true, "RestrictPublicBuckets": all_true,

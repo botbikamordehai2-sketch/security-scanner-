@@ -28,7 +28,7 @@ import httpx
 from flask import Flask, request, jsonify
 
 from shared.db import get_db
-from shared.events import ScanRequest, ScanResult
+from shared.events import ScanResult
 from shared.pubsub_utils import publish_message, IS_CLOUD
 from shared.deepseek import get_deepseek
 
@@ -323,7 +323,7 @@ async def fetch_marinetraffic_congestion(client: httpx.AsyncClient, chokepoint: 
         "signal_type": signal,
         "total_vessels": 0,
         "congestion": "⚪ N/A",
-        "risk_assessment": f"API unavailable — add MARINETRAFFIC_API_KEY",
+        "risk_assessment": "API unavailable — add MARINETRAFFIC_API_KEY",
     }
 
 
@@ -342,12 +342,8 @@ async def run_marinetraffic_scan() -> List[Dict]:
 
 async def run_full_hunt() -> Dict[str, Any]:
     """Run all data sources in parallel: prices + polymarket + marinetraffic."""
-    async with httpx.AsyncClient() as client:
-        metals_task = fetch_metals_live(client)
-        oil_task = fetch_oil_prices(client)
-        dxy_task = fetch_dxy_index(client)
-        # These don't need the shared client due to different base URLs
-        pass
+    async with httpx.AsyncClient():
+        pass  # client available for future direct-fetch tasks
     
     # Run all scans concurrently
     prices_data, polymarket_data, marinetraffic_data = await asyncio.gather(
@@ -623,7 +619,7 @@ def manual_trigger():
             "summary": insights.get("summary", ""),
         }
         status = "success"
-    except Exception as e:
+    except Exception:
         data = {}
         status = "error"
 

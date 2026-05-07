@@ -35,7 +35,6 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from shared.events import (
     ScanRequest,
-    ScanResult,
     ScanResponseV1,
     VulnerabilityItem,
 )
@@ -496,7 +495,7 @@ def backoffice_trade_alert(payload: TradeAlertPayload):
 
     lines = [
         f"{emoji} *Trade Alert — {payload.action.upper()}*",
-        f"",
+        "",
         f"*Instrument:* `{payload.symbol}`",
     ]
     if payload.price:
@@ -506,10 +505,10 @@ def backoffice_trade_alert(payload: TradeAlertPayload):
     if payload.take_profit:
         lines.append(f"*Take Profit:* ${payload.take_profit:,.2f}")
     if payload.rationale:
-        lines.append(f"")
+        lines.append("")
         lines.append(f"*Analysis:* {payload.rationale}")
     if payload.agent_source:
-        lines.append(f"")
+        lines.append("")
         lines.append(f"🤖 _Source: {payload.agent_source}_")
 
     message = "\n".join(lines)
@@ -560,7 +559,6 @@ try:
         scan_project_iam,
         scan_sql_instances,
         scan_gke_clusters,
-        Finding,
     )
     GCP_AUDIT_AVAILABLE = True
 except ImportError:
@@ -807,7 +805,9 @@ def run_aws_audit(payload: AwsScanPayload):
     # ── IAM ──
     if "iam" in requested_scans:
         try:
-            import csv, io, time as _time
+            import csv
+            import io
+            import time as _time
             iam = boto3.client("iam", region_name=payload.region)
             iam.generate_credential_report()
             _time.sleep(2)
@@ -1110,15 +1110,15 @@ if __name__ == "__main__":
     print(f"🚀 Orchestrator starting on port {port}...")
     print(f"   Dashboard:          http://127.0.0.1:{port}/")
     print(f"   API Docs:           http://127.0.0.1:{port}/docs")
-    print(f"   Direct Scan:        POST /api/scan/security")
-    print(f"   Orchestrate:        POST /api/scan/orchestrate")
-    print(f"   DeepSeek Agent:     POST /api/agent/deepseek")
-    print(f"   Causal OSINT:       POST /api/agent/causal-osint/*")
-    print(f"   Trade Alerts:       POST /api/backoffice/trade-alert")
-    print(f"   Agent Registry:     GET  /api/agents")
-    print(f"   GCP Audit:          POST /api/scan/gcp")
-    print(f"   AWS Audit:          POST /api/scan/aws")
-    print(f"   OSINT Score:        POST /api/osint/impact/score")
-    print(f"   OSINT Batch:        POST /api/osint/impact/batch")
+    print("   Direct Scan:        POST /api/scan/security")
+    print("   Orchestrate:        POST /api/scan/orchestrate")
+    print("   DeepSeek Agent:     POST /api/agent/deepseek")
+    print("   Causal OSINT:       POST /api/agent/causal-osint/*")
+    print("   Trade Alerts:       POST /api/backoffice/trade-alert")
+    print("   Agent Registry:     GET  /api/agents")
+    print("   GCP Audit:          POST /api/scan/gcp")
+    print("   AWS Audit:          POST /api/scan/aws")
+    print("   OSINT Score:        POST /api/osint/impact/score")
+    print("   OSINT Batch:        POST /api/osint/impact/batch")
     print(f"   Cloud Mode:         {IS_CLOUD}")
     uvicorn.run("orchestrator.main:app", host="0.0.0.0", port=port, reload=not IS_CLOUD)

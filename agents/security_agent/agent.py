@@ -15,7 +15,6 @@ import os
 import socket
 import sys
 import time
-from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -27,7 +26,7 @@ import requests
 from flask import Flask, request, jsonify
 
 from shared.db import get_db
-from shared.events import ScanRequest, ScanResult, ScanResponseV1, VulnerabilityItem
+from shared.events import ScanResult
 from shared.pubsub_utils import publish_message, IS_CLOUD
 from gcp_audit import scan_firewall_rules, scan_storage_bucket, scan_project_iam, scan_sql_instances, scan_gke_clusters
 from shared.circuit_breaker import get_breaker, CircuitOpenError

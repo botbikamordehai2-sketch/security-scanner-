@@ -271,9 +271,9 @@ def run_semdedup(
             d for d in documents
             if d.adversarial_score <= adversarial_threshold
         ]
-        filtered_count = total - len(documents)
+        pass  # adversarial filter applied
     else:
-        filtered_count = 0
+        pass  # no adversarial filtering
 
     if not documents:
         return SemDeDupResult(

@@ -30,7 +30,6 @@ Reference: "A2P improves failure attribution accuracy by 2.85× versus pattern-m
 
 from __future__ import annotations
 
-import math
 import random
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
@@ -111,6 +110,16 @@ def default_structural_fn(node_name: str, parents: dict[str, float], noise: floa
     clamped to [0,1] for probability nodes, [0,10] for CVE_Score.
     """
     if not parents:
+        # Still need to clamp noise for constrained nodes
+        if node_name in ("Exploit_Availability", "IP_Scans", "EPSS",
+                         "Incident_Probability", "Social_Media_Signal", "DarkWeb_Mention"):
+            return max(0.0, min(1.0, noise))
+        elif node_name == "CVE_Score":
+            return max(0.0, min(10.0, noise))
+        elif node_name == "Patch_Rate":
+            return max(0.0, min(1.0, noise))
+        elif node_name == "PoC_Published":
+            return max(0.0, min(1.0, noise))
         return noise
 
     total = 0.0
@@ -176,6 +185,7 @@ class StructuralCausalModel:
         self.state.clear()
         self.history.clear()
         self.interventions.clear()
+        self.frozen_nodes.clear()
         self.rng = random.Random(seed)
         for name, node in self.nodes.items():
             self.state[name] = node.base_value
@@ -214,11 +224,16 @@ class StructuralCausalModel:
 
     # ── Forward simulation ─────────────────────────────────────────────
 
+    frozen_nodes: set = field(default_factory=set)  # do-not-recompute during forward()
+
     def _step_once(self) -> dict[str, float]:
-        """Advance the SCM by one discrete time step (topological update)."""
+        """Advance the SCM by one discrete time step (topological update).
+        Skips frozen_nodes (intervention targets)."""
         order = self.topological_order()
         new_state: dict[str, float] = dict(self.state)
         for name in order:
+            if name in self.frozen_nodes:
+                continue  # preserve forced value
             node = self.nodes[name]
             parents = {p: new_state.get(p, 0.0) for p in node.parents}
             noise = self.rng.gauss(0, node.noise_std)
@@ -278,15 +293,17 @@ class StructuralCausalModel:
             self.edges.remove(e)
         self._build_adjacency()
 
-        # Force value
+        # Force value and freeze node so forward() skips recomputation
         self.state[node] = value
+        self.frozen_nodes.add(node)
 
         # Run forward propagation
         trajectory = self.forward(steps)
 
         after = dict(self.state)
 
-        # Restore edges
+        # Unfreeze and restore edges
+        self.frozen_nodes.discard(node)
         for e in original_edges:
             self.edges.append(e)
         self._build_adjacency()

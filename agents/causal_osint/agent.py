@@ -23,7 +23,7 @@ import sys
 import time
 import threading
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 from flask import Flask, request, jsonify
 
 # ── Ensure shared modules are importable ───────────────────────────────
@@ -34,7 +34,7 @@ if str(_security_scanner_root) not in sys.path:
     sys.path.insert(0, str(_security_scanner_root))
 
 from shared.execution_wrapper import execute_with_resilience
-from shared.circuit_breaker import get_breaker, all_statuses as all_circuit_statuses
+from shared.circuit_breaker import all_statuses as all_circuit_statuses
 
 # ── Causal OSINT modules ──────────────────────────────────────────────
 
@@ -386,7 +386,7 @@ def reputation_score():
                 initial_credibility=float(initial_cred) if initial_cred is not None else None,
             )
 
-            profile = engine.assess_intelligence(
+            engine.assess_intelligence(
                 source_id=source_id,
                 confirmed=confirmed,
                 confidence=confidence,
@@ -679,11 +679,11 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     debug = os.environ.get("DEBUG", "0") == "1"
 
-    print(f"╔══════════════════════════════════════════════════════════╗")
-    print(f"║  SignalForge-Commotai | Causal OSINT Tier 1 Agent       ║")
+    print("╔══════════════════════════════════════════════════════════╗")
+    print("║  SignalForge-Commotai | Causal OSINT Tier 1 Agent       ║")
     print(f"║  Version: {_agent_version}                                       ║")
     print(f"║  Port: {port}                                               ║")
     print(f"║  Health: http://127.0.0.1:{port}/api/osint/health        ║")
-    print(f"╚══════════════════════════════════════════════════════════╝")
+    print("╚══════════════════════════════════════════════════════════╝")
 
     app.run(host="0.0.0.0", port=port, debug=debug)

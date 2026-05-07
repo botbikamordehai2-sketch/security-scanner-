@@ -17,7 +17,6 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 try:
     from agents.security_agent.gcp_audit import (
-        Finding,
         scan_firewall_rules,
         scan_storage_bucket,
         scan_project_iam,

@@ -1,0 +1,9 @@
+[lint]
+# E402: module-level import not at top — project uses sys.path manipulation pattern throughout
+# F821: undefined name in string annotation (forward refs in pubsub_utils.py)
+ignore = ["E402", "F821"]
+
+[lint.per-file-ignores]
+# Test files: allow unused imports (pytest fixtures, imported for side-effects)
+"**/test_*.py" = ["F401"]
+"**/tests/**" = ["F401"]

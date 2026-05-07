@@ -1,23 +1,28 @@
-app = "signalforge-commotai"
-primary_region = "ams"
-kill_signal = "SIGINT"
-kill_timeout = 5
+# fly.toml app configuration file generated for signalforgesignalforge-app on 2026-05-06T16:50:08Z
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'signalforgesignalforge-app'
+primary_region = 'ams'
+kill_signal = 'SIGINT'
+kill_timeout = '5s'
 
 [build]
-  dockerfile = "Dockerfile.fly"
+  dockerfile = 'Dockerfile.fly'
 
 [env]
-  PORT = "8080"
+  PORT = '8080'
 
 [http_service]
   internal_port = 8080
   force_https = true
-  auto_stop_machines = "stop"
+  auto_stop_machines = 'stop'
   auto_start_machines = true
   min_machines_running = 1
-  processes = ["app"]
+  processes = ['app']
 
 [[vm]]
-  cpu_kind = "shared"
+  cpu_kind = 'shared'
   cpus = 1
   memory_mb = 512

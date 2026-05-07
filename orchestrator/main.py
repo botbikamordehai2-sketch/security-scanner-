@@ -51,6 +51,18 @@ app = FastAPI(
     description="Multi-Agent Security Scanning Platform",
 )
 
+# ── Prometheus Metrics (/metrics) ────────────────
+try:
+    from prometheus_fastapi_instrumentator import Instrumentator
+    Instrumentator(
+        should_group_status_codes=True,
+        should_ignore_untemplated=True,
+        should_respect_env_var=False,
+        excluded_handlers=["/metrics"],
+    ).instrument(app).expose(app, endpoint="/metrics")
+except ImportError:
+    pass
+
 # ── Serve Dashboard on root ──────────────────────────
 
 TEMPLATE_DIR = PROJECT_ROOT / "templates"

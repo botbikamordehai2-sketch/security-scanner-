@@ -15,6 +15,9 @@ COPY orchestrator/ /app/orchestrator/
 # Copy shared modules (deepseek, db, events, pubsub)
 COPY shared/ /app/shared/
 
+# Copy agents (causal_osint, security_agent, etc.)
+COPY agents/ /app/agents/
+
 # Copy templates (dashboard)
 COPY templates/ /app/templates/
 

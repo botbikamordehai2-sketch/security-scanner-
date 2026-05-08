@@ -413,12 +413,20 @@ class TradeAlertPayload(BaseModel):
     rationale: Optional[str] = None
     agent_source: Optional[str] = "data_hunter_agent"  # Which agent generated this
     notify_telegram: bool = True
+    telegram_channel: Optional[str] = "free"  # "free" | "vip" | "personal" | raw chat_id
     notify_email: bool = False
     email_to: Optional[str] = None
 
 
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")  # Default VIP channel
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")  # Default channel
+
+# Channel routing map
+TELEGRAM_CHANNELS = {
+    "free":     os.environ.get("TELEGRAM_CHAT_FREE",     "-1003901040094"),
+    "vip":      os.environ.get("TELEGRAM_CHAT_VIP",      "-1003984881621"),
+    "personal": os.environ.get("TELEGRAM_CHAT_PERSONAL", "1246833993"),
+}
 SENDGRID_API_KEY = os.environ.get("SENDGRID_API_KEY", "")
 FROM_EMAIL = os.environ.get("FROM_EMAIL", "alerts@commotiai.com")
 
@@ -518,7 +526,9 @@ def backoffice_trade_alert(payload: TradeAlertPayload):
 
     # ── Telegram ──
     if payload.notify_telegram:
-        tg_result = send_telegram_alert(message)
+        chat_id = TELEGRAM_CHANNELS.get(payload.telegram_channel, payload.telegram_channel) \
+                  if payload.telegram_channel else TELEGRAM_CHAT_ID
+        tg_result = send_telegram_alert(message, chat_id=chat_id)
         results.append(tg_result)
         if tg_result.get("sent"):
             print(f"[backoffice] Telegram alert sent: {payload.symbol} {payload.action}")
